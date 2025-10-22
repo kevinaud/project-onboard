@@ -9,14 +9,22 @@
   script early.
 #>
 
+[CmdletBinding()]
 param(
-    [switch]$DryRun,
-    [switch]$NonInteractive,
-    [switch]$NoOptional,
-    [switch]$Verbose,
-    [string]$Workspace
+  [switch]$DryRun,
+  [switch]$NonInteractive,
+  [switch]$NoOptional,
+  [switch]$Verbose,
+  [string]$Workspace
 )
 
-Write-Host "[INFO] Windows onboarding is not yet implemented."
-Write-Host "[INFO] Iteration 1 delivers platform detection and logging helpers for Bash."
-Write-Host "[INFO] Please rerun in WSL or macOS using ./setup.sh for the current iteration."
+# Touch parameters so PSScriptAnalyzer knows they are intentionally accepted for parity.
+$null = $DryRun
+$null = $NonInteractive
+$null = $NoOptional
+$null = $Verbose
+$null = $Workspace
+
+Write-Output "[INFO] Windows onboarding is not yet implemented."
+Write-Output "[INFO] Iteration 1 delivers platform detection and logging helpers for Bash."
+Write-Output "[INFO] Please rerun in WSL or macOS using ./setup.sh for the current iteration."
