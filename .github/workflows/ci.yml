@@ -36,6 +36,14 @@ jobs:
         shell: pwsh
         run: Install-Module PSScriptAnalyzer -Scope CurrentUser -Force
 
+      - name: Install Pester
+        shell: pwsh
+        run: Install-Module Pester -Scope CurrentUser -Force -SkipPublisherCheck
+
       - name: Analyze PowerShell scripts
         shell: pwsh
         run: Invoke-ScriptAnalyzer -Path ./setup.ps1 -EnableExit
+
+      - name: Run Pester tests
+        shell: pwsh
+        run: Invoke-Pester -Path ./tests/setup.Tests.ps1 -CI

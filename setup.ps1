@@ -1,13 +1,6 @@
 #!/usr/bin/env pwsh
-<#!
-.SYNOPSIS
-  Windows onboarding entrypoint placeholder.
-
-.DESCRIPTION
-  Iteration 1 focuses on Bash tooling. This PowerShell stub preserves CLI shape so that
-  future work can add parity without breaking documentation or users who discover the
-  script early.
-#>
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'
 
 [CmdletBinding()]
 param(
@@ -18,13 +11,205 @@ param(
   [string]$Workspace
 )
 
-# Touch parameters so PSScriptAnalyzer knows they are intentionally accepted for parity.
-$null = $DryRun
-$null = $NonInteractive
-$null = $NoOptional
-$null = $Verbose
-$null = $Workspace
+$script:OnboardState = $null
 
-Write-Output "[INFO] Windows onboarding is not yet implemented."
-Write-Output "[INFO] Iteration 1 delivers platform detection and logging helpers for Bash."
-Write-Output "[INFO] Please rerun in WSL or macOS using ./setup.sh for the current iteration."
+function Write-Info {
+  param([string]$Message)
+  Write-Output "[INFO] $Message"
+}
+
+function Write-Warn {
+  param([string]$Message)
+  Write-Output "[WARN] $Message"
+}
+
+function Write-VerboseMessage {
+  param([string]$Message)
+  if ($script:OnboardState -and $script:OnboardState.Verbose) {
+    Write-Output "[VERBOSE] $Message"
+  }
+}
+
+function Write-DryRunAction {
+  param([string]$Message)
+  if ($script:OnboardState -and $script:OnboardState.DryRun) {
+    Write-Info "DRY-RUN: $Message"
+  }
+}
+
+function Initialize-OnboardState {
+  param(
+    [switch]$DryRunSwitch,
+    [switch]$NonInteractiveSwitch,
+    [switch]$NoOptionalSwitch,
+    [switch]$VerboseSwitch,
+    [string]$WorkspacePath
+  )
+
+  $defaultWorkspace = if ([string]::IsNullOrWhiteSpace($WorkspacePath)) {
+    if ($env:USERPROFILE) {
+      Join-Path -Path $env:USERPROFILE -ChildPath 'projects'
+    } else {
+      'projects'
+    }
+  } else {
+    $WorkspacePath
+  }
+
+  $script:OnboardState = [ordered]@{
+    DryRun        = $true
+    NonInteractive = [bool]$NonInteractiveSwitch
+    NoOptional    = [bool]$NoOptionalSwitch
+    Verbose       = [bool]$VerboseSwitch
+    Workspace     = $defaultWorkspace
+  }
+
+  if ($DryRunSwitch) {
+    Write-VerboseMessage 'Dry-run parameter supplied; dry-run remains enforced for early iterations.'
+  }
+
+  if (-not $DryRunSwitch) {
+    Write-VerboseMessage 'Dry-run parameter omitted; dry-run enforced to protect early iterations.'
+  }
+
+  if ($script:OnboardState.Verbose) {
+    Write-VerboseMessage "Verbose logging enabled."
+  }
+}
+
+function Show-ExecutionPlan {
+  param([string[]]$Steps)
+
+  if (-not $Steps -or $Steps.Count -eq 0) {
+    return
+  }
+
+  Write-Info 'Execution plan:'
+  foreach ($step in $Steps) {
+    Write-Output "  - $step"
+  }
+}
+
+function Get-OptionalFeatureRecord {
+  param([string]$FeatureName)
+
+  Get-WindowsOptionalFeature -Online -FeatureName $FeatureName -ErrorAction Stop
+}
+
+function Report-OptionalFeatures {
+  $features = @(
+    [pscustomobject]@{ Name = 'Microsoft-Windows-Subsystem-Linux'; Display = 'Windows Subsystem for Linux' },
+    [pscustomobject]@{ Name = 'VirtualMachinePlatform'; Display = 'Virtual Machine Platform' }
+  )
+
+  $results = @()
+
+  foreach ($feature in $features) {
+    try {
+      $record = Get-OptionalFeatureRecord -FeatureName $feature.Name
+      $state = $record.State
+
+      $results += [pscustomobject]@{
+        Name    = $feature.Name
+        Display = $feature.Display
+        State   = $state
+      }
+
+      if ($state -eq 'Enabled') {
+        Write-Info "Optional feature '$($feature.Display)' is already enabled."
+      } else {
+        Write-Warn "Optional feature '$($feature.Display)' is not enabled (state: $state)."
+        Write-DryRunAction "Would enable optional feature '$($feature.Name)' using Enable-WindowsOptionalFeature -Online -FeatureName $($feature.Name) -NoRestart."
+      }
+    } catch {
+      Write-Warn "Unable to query optional feature '$($feature.Display)': $($_.Exception.Message)"
+    }
+  }
+
+  return $results
+}
+
+function Invoke-WslCommand {
+  param([string[]]$Arguments)
+
+  & wsl.exe @Arguments
+}
+
+function Get-WslDistributions {
+  try {
+    $output = Invoke-WslCommand -Arguments @('-l', '-q')
+    if (-not $output) {
+      return @()
+    }
+
+    $trimmed = @()
+    foreach ($line in $output) {
+      $item = $line.Trim()
+      if (-not [string]::IsNullOrWhiteSpace($item)) {
+        $trimmed += $item
+      }
+    }
+
+    return $trimmed
+  } catch {
+    Write-VerboseMessage "Failed to enumerate WSL distributions: $($_.Exception.Message)"
+    return @()
+  }
+}
+
+function Report-WslDistributions {
+  $distributions = Get-WslDistributions
+
+  if ($distributions.Count -gt 0) {
+    Write-Info "Detected WSL distributions: $($distributions -join ', ')"
+  } else {
+    Write-Warn 'No WSL distributions are currently registered.'
+  }
+
+  return $distributions
+}
+
+function Show-FirstBootGuidance {
+  param([string[]]$Distributions)
+
+  $ubuntu = @($Distributions | Where-Object { $_ -like 'Ubuntu*' })
+
+  if ($ubuntu.Count -gt 0) {
+    Write-Info 'Ubuntu distribution detected. Launch it at least once to complete first-boot user creation before continuing.'
+    Write-Info 'Future iterations will automate the WSL hand-off once installers are wired in.'
+  } else {
+    Write-Info 'Ubuntu distribution not detected. After enabling optional features, install it with: wsl --install -d Ubuntu'
+    Write-Info 'Once installation finishes, launch Ubuntu once to create your Linux user before rerunning this script.'
+  }
+}
+
+function Invoke-Onboarding {
+  param(
+    [switch]$DryRun,
+    [switch]$NonInteractive,
+    [switch]$NoOptional,
+    [switch]$Verbose,
+    [string]$Workspace
+  )
+
+  Initialize-OnboardState -DryRunSwitch:$DryRun -NonInteractiveSwitch:$NonInteractive -NoOptionalSwitch:$NoOptional -VerboseSwitch:$Verbose -WorkspacePath $Workspace
+
+  $plan = @(
+    'Check required Windows optional features for WSL',
+    'Detect registered WSL distributions',
+    'Outline first-boot guidance for Ubuntu',
+    'Keep dry-run guardrails in place (no system changes yet)'
+  )
+
+  Show-ExecutionPlan -Steps $plan
+
+  $null = Report-OptionalFeatures
+  $distributions = Report-WslDistributions
+  Show-FirstBootGuidance -Distributions $distributions
+
+  Write-Info 'Dry-run enforced; Windows installers and configuration changes were skipped.'
+}
+
+if ($MyInvocation.InvocationName -ne '.') {
+  Invoke-Onboarding @PSBoundParameters
+}
