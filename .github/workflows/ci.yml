@@ -1,0 +1,34 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  lint-shell:
+    name: Shell scripts
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Install ShellCheck
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
+      - name: Run ShellCheck
+        run: shellcheck -x setup.sh scripts/*.sh
+
+  lint-powershell:
+    name: PowerShell scripts
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Install PSScriptAnalyzer
+        shell: pwsh
+        run: |
+          Install-Module -Name PSScriptAnalyzer -Scope CurrentUser -Force
+      - name: Run PSScriptAnalyzer
+        shell: pwsh
+        run: |
+          Invoke-ScriptAnalyzer -Path ./setup.ps1 -EnableExit
