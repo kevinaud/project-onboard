@@ -31,6 +31,7 @@ This playbook addresses you, the AI coding agent. Humans do not read this file, 
 - Update README usage examples for both shells whenever CLI behavior changes.
 - Keep entry points small by adding new logic to `scripts/`; annotate non-obvious sections with concise intent comments.
 - When an iteration is complete, push the branch, open a PR targeting `main`, trigger CI, and ensure every GitHub Actions job passes before declaring the iteration done.
+- ALL GITHUB INTERACTION MUST BE DONE VIA THE SUITE OF MCP AGENTIC TOOLS FOR GITHUB THAT HAVE BEEN MADE AVAILABLE TO YOU.
 
 ## Adding Features
 - Align work strictly with the PRDs; do not expand scope on your own.
