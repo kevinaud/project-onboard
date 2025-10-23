@@ -109,6 +109,8 @@ main() {
     'Ensure macOS or WSL prerequisites (Homebrew/apt, git, gh, chezmoi) are available when needed'
     'Verify Git global identity and prompt when unset'
     'Apply minimal project-required .gitconfig via chezmoi templates with safe backup'
+    'Authenticate with GitHub (macOS: gh auth login; WSL: uses Windows GCM)'
+    'Clone or update the private project repository'
     'Keep dry-run guardrails in place (no host changes will be made)'
   )
 
@@ -119,10 +121,14 @@ main() {
     "${REPO_ROOT}/scripts/install_prereqs_macos.sh"
     "${REPO_ROOT}/scripts/git_identity.sh"
     "${REPO_ROOT}/scripts/git_config_minimum.sh"
+    "${REPO_ROOT}/scripts/gh_auth.sh"
+    "${REPO_ROOT}/scripts/clone_project.sh"
   elif [ "${ONBOARD_IS_WSL}" -eq 1 ]; then
     "${REPO_ROOT}/scripts/install_prereqs_wsl.sh"
     "${REPO_ROOT}/scripts/git_identity.sh"
     "${REPO_ROOT}/scripts/git_config_minimum.sh"
+    log_verbose 'Skipping GitHub authentication on WSL (uses Windows GCM)'
+    "${REPO_ROOT}/scripts/clone_project.sh"
   else
     log_verbose 'Platform-specific onboarding steps skipped on this platform.'
   fi

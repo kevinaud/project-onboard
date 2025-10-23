@@ -15,7 +15,10 @@ IFS=$' \t\n'
 : "${ONBOARD_WORKSPACE_DIR:=${HOME}/projects}"
 
 # Guard: iteration roadmap enforces dry-run only behaviour for now.
-ONBOARD_DRY_RUN=1
+# However, allow tests to override by checking if it was explicitly set to 0
+if [ "${ONBOARD_DRY_RUN}" != "0" ]; then
+  ONBOARD_DRY_RUN=1
+fi
 export ONBOARD_VERBOSE ONBOARD_NON_INTERACTIVE ONBOARD_DRY_RUN ONBOARD_NO_OPTIONAL ONBOARD_WORKSPACE_DIR
 
 # Timestamp helper shared by backup path generator and logging.
