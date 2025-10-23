@@ -8,6 +8,7 @@ This playbook addresses you, the AI coding agent. Humans do not read this file, 
 - Preserve `min-dotfiles/` for iterations that explicitly hydrate it; never add side effects ahead of schedule.
 
 ## Task Management Protocol
+- NOTE: YOU MUST USE "/home/kevin/projects" AS THE WORKING DIRECTORY PARAMETER THAT YOU PASS TO THE MCP AGENTIC TOOLS COMMANDS BELOW.
 - Treat the MCP project `Cross-Platform Developer Onboarding System` as the single source of truth for scope. Never implement a feature that lacks an open iteration subtask.
 - Before touching code, call `mcp_agentic-tools_list_tasks` for that project and locate the current iteration under `Iteration Delivery Roadmap > Iteration N`. Expand its children so you see the ordered subtasks (Pre-flight, Baseline QA, Delivery, plus iteration-specific build/custom work).
 - Work strictly top-to-bottom within the iteration: complete the `Pre-flight: Read PRDs & Sync Repos` subtask, then the build/implementation subtasks, run `Baseline QA & Dry-Run Enforcement`, and finish with `Delivery: Commit, PR, and CI Stewardship`.
