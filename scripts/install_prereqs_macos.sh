@@ -55,6 +55,7 @@ ensure_homebrew() {
     fi
     log_info 'Homebrew not found; installing via official script.'
     local install_cmd
+    # shellcheck disable=SC2016
     install_cmd='$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)'
     run_cmd 'Install Homebrew' /bin/bash -c "${install_cmd}"
     brew_bin="${ONBOARD_BREW_PREFIX}/bin/brew"
