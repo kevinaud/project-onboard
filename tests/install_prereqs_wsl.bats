@@ -20,7 +20,7 @@ setup() {
 }
 
 @test "install_prereqs_wsl respects dry-run mode" {
-  run env ONBOARD_OS=wsl ONBOARD_IS_WSL=1 ONBOARD_DRY_RUN=1 "${TEST_ROOT}/scripts/install_prereqs_wsl.sh"
+  run env ONBOARD_OS=wsl ONBOARD_ARCH=x86_64 ONBOARD_IS_WSL=1 ONBOARD_DRY_RUN=1 "${TEST_ROOT}/scripts/install_prereqs_wsl.sh"
   [ "$status" -eq 0 ]
   [[ "${output}" == *'DRY-RUN'* ]]
 }
