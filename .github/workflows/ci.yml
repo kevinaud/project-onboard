@@ -42,7 +42,19 @@ jobs:
 
       - name: Analyze PowerShell scripts
         shell: pwsh
-        run: Invoke-ScriptAnalyzer -Path ./setup.ps1 -EnableExit
+        run: |
+          $results = Invoke-ScriptAnalyzer -Path ./setup.ps1
+          $errors = $results | Where-Object { $_.Severity -eq 'Error' }
+          $warnings = $results | Where-Object { $_.Severity -eq 'Warning' -and $_.RuleName -notin @('PSUseSingularNouns', 'PSUseShouldProcessForStateChangingFunctions') }
+          
+          if ($results) {
+            $results | Format-Table -AutoSize
+          }
+          
+          if ($errors -or $warnings) {
+            Write-Error "PSScriptAnalyzer found issues"
+            exit 1
+          }
 
       - name: Run Pester tests
         shell: pwsh

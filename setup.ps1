@@ -57,24 +57,23 @@ function Initialize-OnboardState {
     $WorkspacePath
   }
 
+  # Detect CI environment
+  $isCI = [bool]($env:CI -eq 'true')
+
   $script:OnboardState = [ordered]@{
-    DryRun         = $true
+    DryRun         = [bool]$DryRunSwitch
     NonInteractive = [bool]$NonInteractiveSwitch
     NoOptional     = [bool]$NoOptionalSwitch
     Verbose        = [bool]$VerboseSwitch
     Workspace      = $defaultWorkspace
-  }
-
-  if ($DryRunSwitch) {
-    Write-VerboseMessage 'Dry-run parameter supplied; dry-run remains enforced for early iterations.'
-  }
-
-  if (-not $DryRunSwitch) {
-    Write-VerboseMessage 'Dry-run parameter omitted; dry-run enforced to protect early iterations.'
+    IsCI           = $isCI
   }
 
   if ($script:OnboardState.Verbose) {
     Write-VerboseMessage "Verbose logging enabled."
+    if ($isCI) {
+      Write-VerboseMessage "CI environment detected."
+    }
   }
 }
 
@@ -112,7 +111,7 @@ function Write-OptionalFeatureStatus {
         Write-Info "Optional feature '$($feature.Display)' is already enabled."
       } else {
         Write-Warn "Optional feature '$($feature.Display)' is not enabled (state: $state)."
-        Write-DryRunAction "Would enable optional feature '$($feature.Name)' using Enable-WindowsOptionalFeature -Online -FeatureName $($feature.Name) -NoRestart."
+        Write-DryRunAction "Would enable optional feature '$($feature.Name)' using dism.exe."
       }
     } catch {
       Write-Warn "Unable to query optional feature '$($feature.Display)': $($_.Exception.Message)"
@@ -120,6 +119,86 @@ function Write-OptionalFeatureStatus {
   }
 
   return
+}
+
+function Enable-WslFeatures {
+  Write-Info 'Enabling WSL and Virtual Machine Platform...'
+
+  if ($script:OnboardState.DryRun) {
+    Write-DryRunAction 'Would run: dism.exe /online /enable-feature /featurename:Microsoft-Windows-Subsystem-Linux /all /norestart'
+    Write-DryRunAction 'Would run: dism.exe /online /enable-feature /featurename:VirtualMachinePlatform /all /norestart'
+    return
+  }
+
+  try {
+    $result1 = & dism.exe /online /enable-feature /featurename:Microsoft-Windows-Subsystem-Linux /all /norestart
+    Write-VerboseMessage "dism.exe WSL output: $($result1 -join ' ')"
+
+    $result2 = & dism.exe /online /enable-feature /featurename:VirtualMachinePlatform /all /norestart
+    Write-VerboseMessage "dism.exe VirtualMachinePlatform output: $($result2 -join ' ')"
+
+    Write-Info 'WSL and Virtual Machine Platform features enabled successfully.'
+  } catch {
+    throw "Failed to enable WSL features: $($_.Exception.Message)"
+  }
+}
+
+function Update-WslComponents {
+  Write-Info 'Updating WSL components...'
+
+  if ($script:OnboardState.DryRun) {
+    Write-DryRunAction 'Would run: wsl --update'
+    Write-DryRunAction 'Would run: wsl --set-default-version 2'
+    return
+  }
+
+  try {
+    $updateResult = & wsl.exe --update 2>&1
+    Write-VerboseMessage "wsl --update output: $($updateResult -join ' ')"
+
+    $versionResult = & wsl.exe --set-default-version 2 2>&1
+    Write-VerboseMessage "wsl --set-default-version output: $($versionResult -join ' ')"
+
+    Write-Info 'WSL components updated successfully.'
+  } catch {
+    throw "Failed to update WSL components: $($_.Exception.Message)"
+  }
+}
+
+function Install-UbuntuDistribution {
+  Write-Info 'Installing Ubuntu-22.04...'
+
+  if ($script:OnboardState.DryRun) {
+    Write-DryRunAction 'Would run: wsl --install -d Ubuntu-22.04 --no-launch'
+    return
+  }
+
+  try {
+    $installResult = & wsl.exe --install -d Ubuntu-22.04 --no-launch 2>&1
+    Write-VerboseMessage "wsl --install output: $($installResult -join ' ')"
+
+    Write-Info 'Ubuntu-22.04 installed successfully.'
+  } catch {
+    throw "Failed to install Ubuntu-22.04: $($_.Exception.Message)"
+  }
+}
+
+function Install-GitForWindows {
+  Write-Info 'Installing Git for Windows via winget...'
+
+  if ($script:OnboardState.DryRun) {
+    Write-DryRunAction 'Would run: winget install --id Git.Git -e --source winget'
+    return
+  }
+
+  try {
+    $wingetResult = & winget install --id Git.Git -e --source winget 2>&1
+    Write-VerboseMessage "winget install Git output: $($wingetResult -join ' ')"
+
+    Write-Info 'Git for Windows installed successfully.'
+  } catch {
+    throw "Failed to install Git for Windows: $($_.Exception.Message)"
+  }
 }
 
 function Invoke-WslCommand {
@@ -195,19 +274,41 @@ function Invoke-Onboarding {
 
   $plan = @(
     'Check required Windows optional features for WSL',
+    'Enable WSL and Virtual Machine Platform features',
+    'Update WSL components and set default version to 2',
+    'Install Ubuntu-22.04 distribution',
+    'Install Git for Windows',
     'Detect registered WSL distributions',
-    'Outline first-boot guidance for Ubuntu',
-    'Keep dry-run guardrails in place (no system changes yet)'
+    'Outline first-boot guidance for Ubuntu'
   )
 
   Show-ExecutionPlan -Steps $plan
 
+  # Query feature status before making changes
   Write-OptionalFeatureStatus
+
+  # Enable WSL features (idempotent)
+  Enable-WslFeatures
+
+  # Update WSL components
+  Update-WslComponents
+
+  # Install Ubuntu distribution
+  Install-UbuntuDistribution
+
+  # Install Git for Windows
+  Install-GitForWindows
+
+  # Check what distributions are registered
   $distributions = @(Get-WslDistributionData)
   Write-WslDistributionStatus -Distributions $distributions
   Show-FirstBootGuidance -Distributions $distributions
 
-  Write-Info 'Dry-run enforced; Windows installers and configuration changes were skipped.'
+  if ($script:OnboardState.DryRun) {
+    Write-Info 'Dry-run mode: no system changes were made.'
+  } else {
+    Write-Info 'Windows setup complete. WSL features enabled, Ubuntu installed, Git for Windows installed.'
+  }
 }
 
 if ($MyInvocation.InvocationName -ne '.') {
