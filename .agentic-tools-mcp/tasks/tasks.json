@@ -1,0 +1,16 @@
+{
+  "projects": [
+    {
+      "id": "e354daaa-a730-47dd-8f2a-16cd9124eb00",
+      "name": "Cross-Platform Developer Onboarding System",
+      "description": "A cross-platform onboarding runner that executes in dry-run mode, maintaining parallel Bash (setup.sh) and PowerShell (setup.ps1) implementations with shared helpers in scripts/. Currently in Iteration 0 with expansion planned through subsequent PRD-driven iterations.",
+      "createdAt": "2025-10-23T17:56:12.809Z",
+      "updatedAt": "2025-10-23T17:56:12.809Z"
+    }
+  ],
+  "tasks": [],
+  "subtasks": [],
+  "migration": {
+    "version": "1.8.1"
+  }
+}
