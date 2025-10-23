@@ -108,6 +108,7 @@ main() {
     'Detect host platform information and print environment summary'
     'Ensure macOS or WSL prerequisites (Homebrew/apt, git, gh, chezmoi) are available when needed'
     'Verify Git global identity and prompt when unset'
+    'Apply minimal project-required .gitconfig via chezmoi templates with safe backup'
     'Keep dry-run guardrails in place (no host changes will be made)'
   )
 
@@ -117,9 +118,11 @@ main() {
   if [ "${ONBOARD_OS}" = 'macos' ]; then
     "${REPO_ROOT}/scripts/install_prereqs_macos.sh"
     "${REPO_ROOT}/scripts/git_identity.sh"
+    "${REPO_ROOT}/scripts/git_config_minimum.sh"
   elif [ "${ONBOARD_IS_WSL}" -eq 1 ]; then
     "${REPO_ROOT}/scripts/install_prereqs_wsl.sh"
     "${REPO_ROOT}/scripts/git_identity.sh"
+    "${REPO_ROOT}/scripts/git_config_minimum.sh"
   else
     log_verbose 'Platform-specific onboarding steps skipped on this platform.'
   fi

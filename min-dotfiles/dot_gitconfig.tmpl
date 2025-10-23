@@ -1,0 +1,31 @@
+# Minimal project-required .gitconfig
+# Applied via chezmoi templates by scripts/git_config_minimum.sh
+# See architecture.md section 4 for rationale
+
+[user]
+	# Force explicit identity; prevents VS Code from re-prompting in containers
+	useConfigOnly = true
+
+[credential]
+{{- if and (eq .chezmoi.os "linux") (env "WSL_INTEROP") }}
+	# WSL-specific: delegate credential storage to Windows Git Credential Manager
+	helper = /mnt/c/Program\ Files/Git/mingw64/bin/git-credential-manager.exe
+{{- end }}
+
+[credential "https://dev.azure.com"]
+{{- if and (eq .chezmoi.os "linux") (env "WSL_INTEROP") }}
+	# Azure DevOps requires path context for auth (WSL only)
+	useHttpPath = true
+{{- end }}
+
+[core]
+	# Normalize line endings across platforms
+	autocrlf = input
+
+[init]
+	# Default branch name
+	defaultBranch = main
+
+[pull]
+	# Fast-forward only prevents accidental merge commits
+	ff = only
