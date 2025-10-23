@@ -7,6 +7,14 @@ This playbook addresses you, the AI coding agent. Humans do not read this file, 
 - Keep `setup.sh` (Bash) and `setup.ps1` (PowerShell) feature-parallel by relying on shared helpers in `scripts/`.
 - Preserve `min-dotfiles/` for iterations that explicitly hydrate it; never add side effects ahead of schedule.
 
+## Task Management Protocol
+- Treat the MCP project `Cross-Platform Developer Onboarding System` as the single source of truth for scope. Never implement a feature that lacks an open iteration subtask.
+- Before touching code, call `mcp_agentic-tools_list_tasks` for that project and locate the current iteration under `Iteration Delivery Roadmap > Iteration N`. Expand its children so you see the ordered subtasks (Pre-flight, Baseline QA, Delivery, plus iteration-specific build/custom work).
+- Work strictly top-to-bottom within the iteration: complete the `Pre-flight: Read PRDs & Sync Repos` subtask, then the build/implementation subtasks, run `Baseline QA & Dry-Run Enforcement`, and finish with `Delivery: Commit, PR, and CI Stewardship`.
+- Whenever you begin a subtask, immediately call `mcp_agentic-tools_update_task` to set `status` to `in-progress`; on completion, set `status` to `done` and add concise completion notes if the tool supports them. Never leave a finished subtask pending.
+- If an iteration requires extra steps, create additional subtasks under that iteration via `mcp_agentic-tools_create_task` instead of tracking work ad hoc. Document why the new subtask exists inside its details.
+- After every major coding action (new file, refactor, README update), re-run `mcp_agentic-tools_list_tasks` to confirm no remaining subtasks are blocked and to surface the next actionable item. Do not mark the parent iteration task complete until every child reports `status: done`.
+
 ## Script Patterns
 - Always source/import `scripts/utils.sh` and `scripts/detect.sh`; do not duplicate logging or detection logic.
 - Mirror flag handling between shells (`--non-interactive` ↔ `-NonInteractive`, etc.), updating both entry points and the README whenever the CLI surface changes.

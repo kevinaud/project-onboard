@@ -98,6 +98,40 @@ confirm() {
   done
 }
 
+prompt_for_input() {
+  if [ "$#" -lt 1 ]; then
+    log_error 'prompt_for_input requires at least a prompt message'
+    return 1
+  fi
+
+  local prompt="$1"
+  local default_value="${2:-}"
+
+  if [ "${ONBOARD_NON_INTERACTIVE}" = "1" ]; then
+    log_verbose "Non-interactive mode; returning default for prompt: ${prompt}"
+    printf '%s\n' "${default_value}"
+    return 0
+  fi
+
+  if [ -n "${default_value}" ]; then
+    printf '%s [%s]: ' "${prompt}" "${default_value}" >&2
+  else
+    printf '%s: ' "${prompt}" >&2
+  fi
+
+  local response
+  if ! IFS= read -r response; then
+    log_warn 'Input aborted; falling back to default value'
+    response="${default_value}"
+  fi
+
+  if [ -z "${response}" ]; then
+    response="${default_value}"
+  fi
+
+  printf '%s\n' "${response}"
+}
+
 generate_backup_path() {
   if [ "$#" -ne 1 ]; then
     log_error 'generate_backup_path requires exactly one argument (the original path)'
