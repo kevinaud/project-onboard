@@ -106,12 +106,20 @@ main() {
 
   local plan=(
     'Detect host platform information and print environment summary'
-    'Keep dry-run guardrails in place (no changes will be made)'
-    'Use structured logging helpers for subsequent onboarding steps'
+    'Ensure macOS prerequisites (Homebrew, git, gh, chezmoi) are available when needed'
+    'Verify Git global identity and prompt when unset'
+    'Keep dry-run guardrails in place (no host changes will be made)'
   )
 
   announce_plan "${plan[@]}"
   report_environment
+
+  if [ "${ONBOARD_OS}" = 'macos' ]; then
+    "${REPO_ROOT}/scripts/install_prereqs_macos.sh"
+    "${REPO_ROOT}/scripts/git_identity.sh"
+  else
+    log_verbose 'macOS-specific onboarding steps skipped on this platform.'
+  fi
 
   log_info 'Dry-run enforced; no host changes were attempted.'
 }
