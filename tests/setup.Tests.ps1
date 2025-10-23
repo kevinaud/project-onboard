@@ -14,11 +14,9 @@ Describe 'setup.ps1' {
         'VirtualMachinePlatform'           = 'Enabled'
       }
 
-      Mock Get-WindowsOptionalFeature {
+      Mock Get-OptionalFeatureRecord {
         param(
-          [string]$FeatureName,
-          [switch]$Online,
-          [string]$ErrorAction
+          [string]$FeatureName
         )
 
         [pscustomobject]@{
@@ -27,7 +25,7 @@ Describe 'setup.ps1' {
         }
       }
 
-      Mock Invoke-WslCommand { 'Ubuntu' }
+  Mock Invoke-WslCommand { @('Ubuntu') }
 
       $output = Invoke-Onboarding
 
@@ -36,7 +34,7 @@ Describe 'setup.ps1' {
   $output | Should -Contain "[INFO] Detected WSL distributions: Ubuntu"
   $output | Should -Contain '[INFO] Dry-run enforced; Windows installers and configuration changes were skipped.'
 
-      Assert-MockCalled Get-WindowsOptionalFeature -Times 2 -Exactly
+  Assert-MockCalled Get-OptionalFeatureRecord -Times 2 -Exactly
       Assert-MockCalled Invoke-WslCommand -Times 1 -Exactly
     }
 
@@ -46,11 +44,9 @@ Describe 'setup.ps1' {
         'VirtualMachinePlatform'           = 'Enabled'
       }
 
-      Mock Get-WindowsOptionalFeature {
+      Mock Get-OptionalFeatureRecord {
         param(
-          [string]$FeatureName,
-          [switch]$Online,
-          [string]$ErrorAction
+          [string]$FeatureName
         )
 
         [pscustomobject]@{
@@ -68,7 +64,7 @@ Describe 'setup.ps1' {
   $output | Should -Contain "[WARN] No WSL distributions are currently registered."
   $output | Should -Contain '[INFO] Ubuntu distribution not detected. After enabling optional features, install it with: wsl --install -d Ubuntu'
 
-      Assert-MockCalled Get-WindowsOptionalFeature -Times 2 -Exactly
+  Assert-MockCalled Get-OptionalFeatureRecord -Times 2 -Exactly
       Assert-MockCalled Invoke-WslCommand -Times 1 -Exactly
     }
   }
@@ -80,11 +76,9 @@ Describe 'setup.ps1' {
         'VirtualMachinePlatform'           = 'Enabled'
       }
 
-      Mock Get-WindowsOptionalFeature {
+      Mock Get-OptionalFeatureRecord {
         param(
-          [string]$FeatureName,
-          [switch]$Online,
-          [string]$ErrorAction
+          [string]$FeatureName
         )
 
         [pscustomobject]@{

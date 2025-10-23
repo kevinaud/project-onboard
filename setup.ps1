@@ -1,15 +1,16 @@
 #!/usr/bin/env pwsh
-Set-StrictMode -Version Latest
-$ErrorActionPreference = 'Stop'
 
 [CmdletBinding()]
 param(
   [switch]$DryRun,
   [switch]$NonInteractive,
   [switch]$NoOptional,
-  [switch]$Verbose,
+  [switch]$VerboseMode,
   [string]$Workspace
 )
+
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'
 
 $script:OnboardState = $null
 
@@ -57,11 +58,11 @@ function Initialize-OnboardState {
   }
 
   $script:OnboardState = [ordered]@{
-    DryRun        = $true
+    DryRun         = $true
     NonInteractive = [bool]$NonInteractiveSwitch
-    NoOptional    = [bool]$NoOptionalSwitch
-    Verbose       = [bool]$VerboseSwitch
-    Workspace     = $defaultWorkspace
+    NoOptional     = [bool]$NoOptionalSwitch
+    Verbose        = [bool]$VerboseSwitch
+    Workspace      = $defaultWorkspace
   }
 
   if ($DryRunSwitch) {
@@ -96,24 +97,16 @@ function Get-OptionalFeatureRecord {
   Get-WindowsOptionalFeature -Online -FeatureName $FeatureName -ErrorAction Stop
 }
 
-function Report-OptionalFeatures {
+function Write-OptionalFeatureStatus {
   $features = @(
     [pscustomobject]@{ Name = 'Microsoft-Windows-Subsystem-Linux'; Display = 'Windows Subsystem for Linux' },
     [pscustomobject]@{ Name = 'VirtualMachinePlatform'; Display = 'Virtual Machine Platform' }
   )
 
-  $results = @()
-
   foreach ($feature in $features) {
     try {
       $record = Get-OptionalFeatureRecord -FeatureName $feature.Name
       $state = $record.State
-
-      $results += [pscustomobject]@{
-        Name    = $feature.Name
-        Display = $feature.Display
-        State   = $state
-      }
 
       if ($state -eq 'Enabled') {
         Write-Info "Optional feature '$($feature.Display)' is already enabled."
@@ -126,7 +119,7 @@ function Report-OptionalFeatures {
     }
   }
 
-  return $results
+  return
 }
 
 function Invoke-WslCommand {
@@ -135,7 +128,7 @@ function Invoke-WslCommand {
   & wsl.exe @Arguments
 }
 
-function Get-WslDistributions {
+function Get-WslDistributionData {
   try {
     $output = Invoke-WslCommand -Arguments @('-l', '-q')
     if (-not $output) {
@@ -157,16 +150,22 @@ function Get-WslDistributions {
   }
 }
 
-function Report-WslDistributions {
-  $distributions = Get-WslDistributions
+function Write-WslDistributionStatus {
+  param([string[]]$Distributions)
 
-  if ($distributions.Count -gt 0) {
-    Write-Info "Detected WSL distributions: $($distributions -join ', ')"
+  if (-not $PSBoundParameters.ContainsKey('Distributions')) {
+    $Distributions = @(Get-WslDistributionData)
+  } else {
+    $Distributions = @($Distributions)
+  }
+
+  if ($Distributions.Count -gt 0) {
+    Write-Info "Detected WSL distributions: $($Distributions -join ', ')"
   } else {
     Write-Warn 'No WSL distributions are currently registered.'
   }
 
-  return $distributions
+  return $Distributions
 }
 
 function Show-FirstBootGuidance {
@@ -188,11 +187,11 @@ function Invoke-Onboarding {
     [switch]$DryRun,
     [switch]$NonInteractive,
     [switch]$NoOptional,
-    [switch]$Verbose,
+    [switch]$VerboseMode,
     [string]$Workspace
   )
 
-  Initialize-OnboardState -DryRunSwitch:$DryRun -NonInteractiveSwitch:$NonInteractive -NoOptionalSwitch:$NoOptional -VerboseSwitch:$Verbose -WorkspacePath $Workspace
+  Initialize-OnboardState -DryRunSwitch:$DryRun -NonInteractiveSwitch:$NonInteractive -NoOptionalSwitch:$NoOptional -VerboseSwitch:$VerboseMode -WorkspacePath $Workspace
 
   $plan = @(
     'Check required Windows optional features for WSL',
@@ -203,8 +202,9 @@ function Invoke-Onboarding {
 
   Show-ExecutionPlan -Steps $plan
 
-  $null = Report-OptionalFeatures
-  $distributions = Report-WslDistributions
+  Write-OptionalFeatureStatus
+  $distributions = @(Get-WslDistributionData)
+  Write-WslDistributionStatus -Distributions $distributions
   Show-FirstBootGuidance -Distributions $distributions
 
   Write-Info 'Dry-run enforced; Windows installers and configuration changes were skipped.'
