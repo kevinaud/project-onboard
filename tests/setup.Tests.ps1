@@ -183,4 +183,54 @@ Describe 'setup.ps1' {
       $output | Should -Contain '[INFO] Ubuntu distribution detected. Launch it at least once to complete first-boot user creation before continuing.'
     }
   }
+
+  Context 'CI vs Manual mode detection' {
+    It 'skips manual-only steps in CI mode' {
+      Mock Get-OptionalFeatureRecord {
+        [pscustomobject]@{
+          FeatureName = 'Microsoft-Windows-Subsystem-Linux'
+          State       = 'Enabled'
+        }
+      }
+
+      Mock Invoke-WslCommand { @('Ubuntu') }
+
+      # Set CI environment
+      $env:CI = 'true'
+      try {
+        $output = Invoke-Onboarding -DryRun
+
+        $output | Should -Contain '[INFO] CI mode detected: Skipping manual-only steps (Docker Desktop, GCM authentication).'
+        $output | Should -Not -Contain '  - Install Docker Desktop (manual only)'
+        $output | Should -Not -Contain '[INFO] Docker Desktop Manual Configuration'
+        $output | Should -Not -Contain '[INFO] Git Credential Manager Authentication'
+        $output | Should -Not -Contain '[WARN] Dry-run or non-interactive mode: Skipping Docker Desktop confirmation prompt.'
+      } finally {
+        Remove-Item Env:\CI -ErrorAction SilentlyContinue
+      }
+    }
+
+    It 'includes manual-only steps when not in CI mode' {
+      Mock Get-OptionalFeatureRecord {
+        [pscustomobject]@{
+          FeatureName = 'Microsoft-Windows-Subsystem-Linux'
+          State       = 'Enabled'
+        }
+      }
+
+      Mock Invoke-WslCommand { @('Ubuntu') }
+
+      # Ensure CI is not set
+      Remove-Item Env:\CI -ErrorAction SilentlyContinue
+
+  $output = Invoke-Onboarding -DryRun
+
+  $output | Should -Contain '  - Install Docker Desktop (manual only)'
+  $output | Should -Contain '[INFO] DRY-RUN: Would run: winget install --id Docker.DockerDesktop -e --source winget'
+  $output | Should -Contain '[INFO] Docker Desktop Manual Configuration'
+  $output | Should -Contain '[WARN] Dry-run or non-interactive mode: Skipping Docker Desktop confirmation prompt.'
+  $output | Should -Contain '[INFO] Git Credential Manager Authentication'
+  $output | Should -Contain '[INFO] DRY-RUN: Would run: & ''C:\Program Files\Git\mingw64\bin\git-credential-manager.exe'' configure'
+    }
+  }
 }
