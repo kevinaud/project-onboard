@@ -192,10 +192,24 @@ function Install-UbuntuDistribution {
   try {
     # Install Ubuntu distribution using --no-launch to prevent interactive setup
     # This leaves the distribution in a pristine state where commands can be run as root
+    Write-VerboseMessage 'Running: wsl --install -d Ubuntu-22.04 --no-launch'
     $installResult = & wsl.exe --install -d Ubuntu-22.04 --no-launch 2>&1
-    Write-VerboseMessage "wsl --install output: $($installResult -join ' ')"
+    Write-VerboseMessage "wsl --install output: $($installResult -join "`n")"
 
-    Write-Info 'Ubuntu-22.04 installed successfully.'
+    # Verify the distribution was registered by checking wsl -l -v
+    Write-VerboseMessage 'Verifying distribution registration with wsl -l -v'
+    $verifyResult = & wsl.exe -l -v 2>&1
+    Write-VerboseMessage "wsl -l -v output: $($verifyResult -join "`n")"
+    
+    # Check if Ubuntu-22.04 appears in the list
+    $distroFound = $verifyResult | Where-Object { $_ -match 'Ubuntu-22\.04' }
+    if ($distroFound) {
+      Write-Info "Ubuntu-22.04 installed and registered successfully."
+    } else {
+      Write-Warn "wsl --install completed but Ubuntu-22.04 not found in wsl -l -v output."
+      Write-Warn "This may indicate the distribution is still being registered."
+      Write-Info "Ubuntu-22.04 installation command completed."
+    }
   } catch {
     throw "Failed to install Ubuntu-22.04: $($_.Exception.Message)"
   }
