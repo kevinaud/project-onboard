@@ -1,0 +1,135 @@
+name: Windows E2E Onboarding
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  e2e-windows:
+    name: Windows WSL Devcontainer E2E
+    runs-on: windows-latest
+    timeout-minutes: 60
+    env:
+      CI: "true"
+      GH_ACTOR: ${{ github.actor }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run Windows onboarding wrapper
+        shell: pwsh
+        run: |
+          Set-ExecutionPolicy -ExecutionPolicy Bypass -Scope Process -Force
+          ./setup.ps1 -NonInteractive
+
+      - name: Enable systemd for WSL
+        shell: pwsh
+        run: |
+          wsl.exe -u root -e bash -c "set -e; printf '[boot]\nsystemd=true\n' > /etc/wsl.conf"
+          wsl.exe --shutdown
+          Start-Sleep -Seconds 5
+
+      - name: Install Docker Engine inside WSL
+        shell: pwsh
+        run: |
+          $script = @'
+          set -euo pipefail
+          echo '--- Starting Docker Engine installation ---'
+          apt-get update
+          apt-get install -y ca-certificates curl gnupg
+          install -m 0755 -d /etc/apt/keyrings
+          curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+          chmod a+r /etc/apt/keyrings/docker.asc
+          source /etc/os-release
+          printf 'deb [arch=%s signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu %s stable\n' "$(dpkg --print-architecture)" "$VERSION_CODENAME" > /etc/apt/sources.list.d/docker.list
+          apt-get update
+          apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+          systemctl start docker
+          echo 'Waiting for Docker daemon to become ready...'
+          max_retries=30
+          count=0
+          until docker info >/dev/null 2>&1; do
+            if [ $count -ge $max_retries ]; then
+              echo 'Docker daemon failed to start in time.' >&2
+              exit 1
+            fi
+            sleep 1
+            count=$((count+1))
+          done
+          echo 'Docker daemon is ready.'
+          docker info
+          '@
+
+          $script = ($script -split "`n" | ForEach-Object { $_.TrimStart() }) -join "`n"
+
+          $command = @"
+          cat <<'EOF' >/tmp/install-docker.sh
+          $script
+          EOF
+          bash /tmp/install-docker.sh
+          rm -f /tmp/install-docker.sh
+          "@
+          $command = ($command -split "`n" | ForEach-Object { $_.TrimStart() }) -join "`n"
+
+          wsl.exe -u root -e bash -c "$command"
+
+      - name: Determine WSL workspace path
+        shell: pwsh
+        run: |
+          $windowsPath = (Get-Location).Path
+          $wslPath = wsl.exe wslpath -a "$windowsPath"
+          if ($LASTEXITCODE -ne 0) {
+            throw "Failed to translate Windows path '$windowsPath' to a WSL path."
+          }
+          $wslPath = $wslPath.Trim()
+          "WSL_WORKDIR=$wslPath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Configure Git credential rewrite inside WSL
+        shell: pwsh
+        env:
+          GH_ACTOR: ${{ github.actor }}
+        run: |
+          $pat = $env:PROJECT_ONBOARD_PAT
+          if (-not $pat) {
+            throw 'PROJECT_ONBOARD_PAT secret is required to clone the private repository.'
+          }
+
+          $env:PROJECT_ONBOARD_PAT = $pat
+
+          $script = @'
+          set -euo pipefail
+          git config --global url."https://${GH_ACTOR}:${PROJECT_ONBOARD_PAT}@github.com/".insteadOf "https://github.com/"
+          '@
+          $script = ($script -split "`n" | ForEach-Object { $_.TrimStart() }) -join "`n"
+
+          $command = @"
+          cat <<'EOF' >/tmp/git-auth.sh
+          $script
+          EOF
+          env GH_ACTOR="$env:GH_ACTOR" PROJECT_ONBOARD_PAT="$env:PROJECT_ONBOARD_PAT" bash /tmp/git-auth.sh
+          rm -f /tmp/git-auth.sh
+          "@
+          $command = ($command -split "`n" | ForEach-Object { $_.TrimStart() }) -join "`n"
+
+          wsl.exe -u root -e bash -c "$command"
+
+      - name: Run setup.sh inside WSL
+        shell: pwsh
+        run: |
+          if (-not $env:WSL_WORKDIR) {
+            throw 'WSL_WORKDIR environment variable was not set.'
+          }
+
+          $handoff = @'
+          set -euo pipefail
+          cd "$WSL_WORKDIR"
+          ONBOARD_DRY_RUN=0 ./setup.sh --non-interactive --no-optional
+          '@
+          $handoff = ($handoff -split "`n" | ForEach-Object { $_.TrimStart() }) -join "`n"
+
+          wsl.exe -u root -e bash -lc "$handoff"
