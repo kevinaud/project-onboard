@@ -186,12 +186,37 @@ function Install-UbuntuDistribution {
 
   if ($script:OnboardState.DryRun) {
     Write-DryRunAction 'Would run: wsl --install -d Ubuntu-22.04 --no-launch'
+    Write-DryRunAction 'Would wait for distribution to be registered'
     return
   }
 
   try {
     $installResult = & wsl.exe --install -d Ubuntu-22.04 --no-launch 2>&1
     Write-VerboseMessage "wsl --install output: $($installResult -join ' ')"
+
+    # Wait for the distribution to be registered
+    # The --no-launch flag prevents interactive user setup, leaving the distro
+    # in a pristine state where we can run commands as root via wsl -u root -e
+    Write-Info 'Waiting for Ubuntu-22.04 to be registered...'
+    $maxRetries = 30
+    $retryCount = 0
+    $distroFound = $false
+
+    while ($retryCount -lt $maxRetries) {
+      Start-Sleep -Seconds 2
+      $distributions = @(Get-WslDistributionData)
+      if ($distributions -contains 'Ubuntu-22.04') {
+        $distroFound = $true
+        Write-Info 'Ubuntu-22.04 is now registered.'
+        break
+      }
+      $retryCount++
+      Write-VerboseMessage "Waiting for Ubuntu-22.04 registration (attempt $retryCount/$maxRetries)..."
+    }
+
+    if (-not $distroFound) {
+      throw 'Ubuntu-22.04 installation timed out - distribution was not registered within expected time.'
+    }
 
     Write-Info 'Ubuntu-22.04 installed successfully.'
   } catch {
@@ -536,8 +561,13 @@ function Invoke-Onboarding {
     Invoke-WslFirstBootSetup
   }
 
-  # Final handoff to setup.sh inside WSL (runs for BOTH manual and CI)
-  Invoke-WslHandoff
+  # Handoff to setup.sh inside WSL (manual mode only)
+  # In CI mode, the GitHub Actions workflow handles all subsequent steps
+  if (-not $script:OnboardState.IsCI) {
+    Invoke-WslHandoff
+  } else {
+    Write-Info 'CI mode: Skipping setup.sh handoff. The GitHub Actions workflow will handle subsequent steps.'
+  }
 
   if ($script:OnboardState.DryRun) {
     Write-Info 'Dry-run mode: no system changes were made.'
