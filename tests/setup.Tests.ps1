@@ -57,16 +57,29 @@ Describe 'setup.ps1' {
 
       Mock Invoke-WslCommand { @() }
 
-      $output = Invoke-Onboarding -DryRun
+      $originalCI = $env:CI
+      if ($null -ne $originalCI) {
+        Remove-Item Env:\CI -ErrorAction SilentlyContinue
+      }
 
-      $output | Should -Contain "[WARN] Optional feature 'Windows Subsystem for Linux' is not enabled (state: Disabled)."
-      $output | Should -Contain "[INFO] DRY-RUN: Would run: dism.exe /online /enable-feature /featurename:Microsoft-Windows-Subsystem-Linux /all /norestart"
-      $output | Should -Contain "[WARN] No WSL distributions are currently registered."
-      # Verify WSL first-boot setup is included even when no distributions exist
-      ($output -join "`n") | Should -Match 'WSL First-Boot User Setup'
+      try {
+        $output = Invoke-Onboarding -DryRun
 
-      Assert-MockCalled Get-OptionalFeatureRecord -Times 2 -Exactly
-      Assert-MockCalled Invoke-WslCommand -Times 1 -Exactly
+        $output | Should -Contain "[WARN] Optional feature 'Windows Subsystem for Linux' is not enabled (state: Disabled)."
+        $output | Should -Contain "[INFO] DRY-RUN: Would run: dism.exe /online /enable-feature /featurename:Microsoft-Windows-Subsystem-Linux /all /norestart"
+        $output | Should -Contain "[WARN] No WSL distributions are currently registered."
+        # Verify WSL first-boot setup is included even when no distributions exist
+        ($output -join "`n") | Should -Match 'WSL First-Boot User Setup'
+
+        Assert-MockCalled Get-OptionalFeatureRecord -Times 2 -Exactly
+        Assert-MockCalled Invoke-WslCommand -Times 1 -Exactly
+      } finally {
+        if ($null -ne $originalCI) {
+          $env:CI = $originalCI
+        } else {
+          Remove-Item Env:\CI -ErrorAction SilentlyContinue
+        }
+      }
     }
   }
 
