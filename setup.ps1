@@ -121,12 +121,20 @@ function Write-OptionalFeatureStatus {
   return
 }
 
-function Enable-WslFeatures {
+function Enable-WslFeature {
+  [CmdletBinding(SupportsShouldProcess = $true)]
+  param()
+
   Write-Info 'Enabling WSL and Virtual Machine Platform...'
 
   if ($script:OnboardState.DryRun) {
     Write-DryRunAction 'Would run: dism.exe /online /enable-feature /featurename:Microsoft-Windows-Subsystem-Linux /all /norestart'
     Write-DryRunAction 'Would run: dism.exe /online /enable-feature /featurename:VirtualMachinePlatform /all /norestart'
+    return
+  }
+
+  if (-not $PSCmdlet.ShouldProcess('Windows optional features for WSL', 'Enable required optional features')) {
+    Write-VerboseMessage 'Enable-WslFeature skipped by ShouldProcess.'
     return
   }
 
@@ -143,12 +151,20 @@ function Enable-WslFeatures {
   }
 }
 
-function Update-WslComponents {
+function Update-WslComponent {
+  [CmdletBinding(SupportsShouldProcess = $true)]
+  param()
+
   Write-Info 'Updating WSL components...'
 
   if ($script:OnboardState.DryRun) {
     Write-DryRunAction 'Would run: wsl --update'
     Write-DryRunAction 'Would run: wsl --set-default-version 2'
+    return
+  }
+
+  if (-not $PSCmdlet.ShouldProcess('WSL components', 'Update WSL and configure default version')) {
+    Write-VerboseMessage 'Update-WslComponent skipped by ShouldProcess.'
     return
   }
 
@@ -198,6 +214,91 @@ function Install-GitForWindows {
     Write-Info 'Git for Windows installed successfully.'
   } catch {
     throw "Failed to install Git for Windows: $($_.Exception.Message)"
+  }
+}
+
+function Install-DockerDesktop {
+  Write-Info 'Installing Docker Desktop via winget...'
+
+  if ($script:OnboardState.DryRun) {
+    Write-DryRunAction 'Would run: winget install --id Docker.DockerDesktop -e --source winget'
+    return
+  }
+
+  try {
+    $wingetResult = & winget install --id Docker.DockerDesktop -e --source winget 2>&1
+    Write-VerboseMessage "winget install Docker Desktop output: $($wingetResult -join ' ')"
+    Write-Info 'Docker Desktop installed successfully.'
+  } catch {
+    throw "Failed to install Docker Desktop: $($_.Exception.Message)"
+  }
+}
+
+function Show-DockerDesktopGuidance {
+  Write-Info ''
+  Write-Info '==========================================='
+  Write-Info 'Docker Desktop Manual Configuration'
+  Write-Info '==========================================='
+  Write-Info 'Docker Desktop is installed. You must NOW manually:'
+  Write-Info '  1. Start Docker Desktop from the Start Menu.'
+  Write-Info '  2. Accept the terms of service.'
+  Write-Info '  3. In Docker Desktop Settings > Resources > WSL Integration,'
+  Write-Info '     enable integration for ''Ubuntu-22.04''.'
+  Write-Info '  4. Click ''Apply & Restart''.'
+  Write-Info '==========================================='
+  Write-Info ''
+
+  if ($script:OnboardState.DryRun -or $script:OnboardState.NonInteractive) {
+    Write-Warn 'Dry-run or non-interactive mode: Skipping Docker Desktop confirmation prompt.'
+  } else {
+    Read-Host 'Press ENTER to continue once Docker Desktop is running and WSL integration is enabled'
+  }
+}
+
+function Invoke-GitCredentialManagerAuth {
+  Write-Info ''
+  Write-Info '==========================================='
+  Write-Info 'Git Credential Manager Authentication'
+  Write-Info '==========================================='
+  Write-Info 'We will now authenticate Git with GitHub. A browser window will open...'
+  Write-Info '==========================================='
+  Write-Info ''
+
+  $gcmPath = 'C:\Program Files\Git\mingw64\bin\git-credential-manager.exe'
+
+  if ($script:OnboardState.DryRun) {
+    Write-DryRunAction "Would run: & '$gcmPath' configure"
+    Write-DryRunAction "Would trigger browser authentication for GitHub"
+    return
+  }
+
+  if (-not (Test-Path $gcmPath)) {
+    Write-Warn "Git Credential Manager not found at expected path: $gcmPath"
+    Write-Warn 'Skipping GCM authentication. Please ensure Git for Windows is installed correctly.'
+    return
+  }
+
+  try {
+    # Configure GCM
+    $configResult = & $gcmPath configure 2>&1
+    Write-VerboseMessage "GCM configure output: $($configResult -join ' ')"
+
+    # Trigger authentication (this will open browser)
+    Write-Info 'Triggering GitHub authentication...'
+    $authInput = "protocol=https`nhost=github.com`n`n"
+    $authResult = $authInput | & $gcmPath get 2>&1
+    Write-VerboseMessage "GCM get output: $($authResult -join ' ')"
+
+    Write-Info 'Git Credential Manager authentication initiated.'
+  } catch {
+    Write-Warn "GCM authentication encountered an issue: $($_.Exception.Message)"
+    Write-Info 'You may need to authenticate manually later.'
+  }
+
+  if (-not $script:OnboardState.NonInteractive) {
+    Read-Host 'Press ENTER to continue once you have successfully logged in via your browser'
+  } else {
+    Write-Warn 'Non-interactive mode: Skipping authentication confirmation prompt.'
   }
 }
 
@@ -277,7 +378,17 @@ function Invoke-Onboarding {
     'Enable WSL and Virtual Machine Platform features',
     'Update WSL components and set default version to 2',
     'Install Ubuntu-22.04 distribution',
-    'Install Git for Windows',
+    'Install Git for Windows'
+  )
+
+  # Add manual-only steps to plan if not in CI
+  if (-not $script:OnboardState.IsCI) {
+    $plan += 'Install Docker Desktop (manual only)'
+    $plan += 'Configure Docker Desktop WSL integration (manual guidance)'
+    $plan += 'Authenticate Git Credential Manager with GitHub (manual only)'
+  }
+
+  $plan += @(
     'Detect registered WSL distributions',
     'Outline first-boot guidance for Ubuntu'
   )
@@ -288,16 +399,38 @@ function Invoke-Onboarding {
   Write-OptionalFeatureStatus
 
   # Enable WSL features (idempotent)
-  Enable-WslFeatures
+  Enable-WslFeature
 
   # Update WSL components
-  Update-WslComponents
+  Update-WslComponent
 
   # Install Ubuntu distribution
   Install-UbuntuDistribution
 
   # Install Git for Windows
   Install-GitForWindows
+
+  # Manual-only block: Docker Desktop and GCM authentication
+  if (-not $script:OnboardState.IsCI) {
+    Write-Info ''
+    Write-Info '========== Manual Configuration Steps =========='
+    Write-Info ''
+
+    # Install Docker Desktop
+    Install-DockerDesktop
+
+    # Guide user through Docker Desktop setup
+    Show-DockerDesktopGuidance
+
+    # Authenticate with GitHub using GCM
+    Invoke-GitCredentialManagerAuth
+
+    Write-Info ''
+    Write-Info '========== Manual Configuration Complete =========='
+    Write-Info ''
+  } else {
+    Write-Info 'CI mode detected: Skipping manual-only steps (Docker Desktop, GCM authentication).'
+  }
 
   # Check what distributions are registered
   $distributions = @(Get-WslDistributionData)
@@ -307,7 +440,11 @@ function Invoke-Onboarding {
   if ($script:OnboardState.DryRun) {
     Write-Info 'Dry-run mode: no system changes were made.'
   } else {
-    Write-Info 'Windows setup complete. WSL features enabled, Ubuntu installed, Git for Windows installed.'
+    if ($script:OnboardState.IsCI) {
+      Write-Info 'Windows setup complete (CI mode). WSL features enabled, Ubuntu installed, Git for Windows installed.'
+    } else {
+      Write-Info 'Windows setup complete. WSL, Ubuntu, Git for Windows, Docker Desktop installed and configured.'
+    }
   }
 }
 

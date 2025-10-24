@@ -79,6 +79,13 @@ Lint scripts with ShellCheck:
 shellcheck -x setup.sh scripts/*.sh
 ```
 
+Use the reusable timeout wrapper to keep long-running validations from hanging:
+
+```bash
+./scripts/run_with_timeout.sh 300 -- pwsh -File ./setup.ps1 -DryRun -NonInteractive
+./scripts/run_with_timeout.sh 300 -- pwsh -NoProfile -Command "Invoke-Pester -Path tests/setup.Tests.ps1"
+```
+
 ## Troubleshooting
 
 ### GitHub Authentication Fails
