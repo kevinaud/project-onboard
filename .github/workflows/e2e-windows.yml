@@ -83,7 +83,8 @@ jobs:
         shell: pwsh
         run: |
           $windowsPath = (Get-Location).Path
-          $wslPath = wsl.exe wslpath -a "$windowsPath"
+          $normalizedPath = $windowsPath -replace '\\','/'  # wslpath interprets backslash escapes, so normalize to forward slashes first
+          $wslPath = wsl.exe -- wslpath -a "$normalizedPath"
           if ($LASTEXITCODE -ne 0) {
             throw "Failed to translate Windows path '$windowsPath' to a WSL path."
           }
