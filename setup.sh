@@ -129,6 +129,7 @@ main() {
     "${REPO_ROOT}/scripts/git_config_minimum.sh"
     log_verbose 'Skipping GitHub authentication on WSL (uses Windows GCM)'
     "${REPO_ROOT}/scripts/clone_project.sh"
+    "${REPO_ROOT}/scripts/docker_verify_wsl.sh"
   else
     log_verbose 'Platform-specific onboarding steps skipped on this platform.'
   fi
