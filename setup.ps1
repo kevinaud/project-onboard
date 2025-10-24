@@ -216,9 +216,38 @@ function Import-UbuntuDistributionFromAppx {
     Write-Info 'Expanding Ubuntu package contents...'
     Expand-Archive -Path $appxPath -DestinationPath $extractPath -Force
 
-    $tarGzItem = Get-ChildItem -Path $extractPath -Filter 'install.tar.gz' -Recurse | Select-Object -First 1
+    $tarGzItem = Get-ChildItem -Path $extractPath -Recurse -File |
+      Where-Object { $_.Name -ieq 'install.tar.gz' } |
+      Select-Object -First 1
+
     if (-not $tarGzItem) {
-      throw 'Unable to locate install.tar.gz inside the downloaded Ubuntu package.'
+      Write-VerboseMessage 'install.tar.gz not found after initial extraction; searching nested architecture package.'
+
+      $nestedAppx = Get-ChildItem -Path $extractPath -Recurse -File |
+        Where-Object { $_.Extension -ieq '.appx' -and $_.Name -match '_x64\.appx$' } |
+        Select-Object -First 1
+
+      if (-not $nestedAppx) {
+        $nestedAppx = Get-ChildItem -Path $extractPath -Recurse -File |
+          Where-Object { $_.Extension -ieq '.appx' } |
+          Select-Object -First 1
+      }
+
+      if (-not $nestedAppx) {
+        throw 'Unable to locate architecture-specific appx inside the downloaded Ubuntu bundle.'
+      }
+
+      Write-VerboseMessage "Expanding nested architecture package: $($nestedAppx.FullName)"
+      $nestedExtractPath = Join-Path -Path $extractPath -ChildPath 'nested-appx'
+      Expand-Archive -Path $nestedAppx.FullName -DestinationPath $nestedExtractPath -Force
+
+      $tarGzItem = Get-ChildItem -Path $nestedExtractPath -Recurse -File |
+        Where-Object { $_.Name -ieq 'install.tar.gz' -or $_.Name -like '*.tar.gz' } |
+        Select-Object -First 1
+    }
+
+    if (-not $tarGzItem) {
+      throw 'Unable to locate install.tar.gz after extracting the Ubuntu package.'
     }
 
     Write-VerboseMessage "Found install.tar.gz at $($tarGzItem.FullName)"
