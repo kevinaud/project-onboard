@@ -348,6 +348,100 @@ function Write-WslDistributionStatus {
   return $Distributions
 }
 
+function Invoke-WslFirstBootSetup {
+  <#
+  .SYNOPSIS
+    Check if WSL user exists and guide through first-boot setup if needed.
+  #>
+
+  Write-Info ''
+  Write-Info '========== WSL First-Boot User Setup =========='
+  Write-Info ''
+
+  if ($script:OnboardState.DryRun) {
+    Write-DryRunAction 'Would check WSL user existence with: wsl -e id -u'
+    Write-DryRunAction 'Would launch interactive WSL setup if needed: Start-Process wsl.exe'
+    return
+  }
+
+  # Try to run id -u inside WSL to check if a user exists
+  $wslUserCheck = $null
+  try {
+    $wslUserCheck = wsl -e id -u 2>&1
+    $wslUserExists = $LASTEXITCODE -eq 0
+  } catch {
+    $wslUserExists = $false
+  }
+
+  if (-not $wslUserExists) {
+    Write-Info 'WSL is installed but needs its initial user setup.'
+    Write-Info 'A new Ubuntu terminal will open. Please create your default username and password.'
+    Write-Info 'When complete, close the Ubuntu window and return here.'
+    Write-Info ''
+
+    # Launch WSL interactively
+    Start-Process 'wsl.exe' -Wait:$false
+
+    Write-Info 'Waiting for WSL user creation...'
+    Read-Host 'Press ENTER to continue once your WSL user is created and the Ubuntu window is closed'
+  } else {
+    Write-Info "WSL user already exists (UID: $wslUserCheck). Skipping first-boot setup."
+  }
+
+  Write-Info ''
+  Write-Info '========== WSL First-Boot Complete =========='
+  Write-Info ''
+}
+
+function Invoke-WslHandoff {
+  <#
+  .SYNOPSIS
+    Hand off to setup.sh inside WSL with flag passthrough.
+  #>
+
+  Write-Info ''
+  Write-Info '========== Handing off to setup.sh inside WSL =========='
+  Write-Info ''
+
+  # Build flag string for setup.sh
+  $wslFlags = ''
+  if ($script:OnboardState.NonInteractive) {
+    $wslFlags += ' --non-interactive'
+  }
+  if ($script:OnboardState.Verbose) {
+    $wslFlags += ' --verbose'
+  }
+  if ($script:OnboardState.NoOptional) {
+    $wslFlags += ' --no-optional'
+  }
+  if ($script:OnboardState.Workspace) {
+    $wslFlags += " --workspace $($script:OnboardState.Workspace)"
+  }
+
+  $setupUrl = 'https://raw.githubusercontent.com/kevinaud/project-onboard/main/setup.sh'
+  $handoffCommand = "curl -fsSL $setupUrl | bash -s -- $wslFlags"
+
+  Write-Info "Executing: wsl -e bash -lc `"$handoffCommand`""
+
+  if ($script:OnboardState.DryRun) {
+    Write-DryRunAction "Would execute: wsl -e bash -lc `"$handoffCommand`""
+    return
+  }
+
+  try {
+    wsl -e bash -lc $handoffCommand
+    if ($LASTEXITCODE -ne 0) {
+      Write-Warn "setup.sh exited with code $LASTEXITCODE"
+    }
+  } catch {
+    Write-Warn "Failed to execute setup.sh inside WSL: $_"
+  }
+
+  Write-Info ''
+  Write-Info '========== WSL Handoff Complete =========='
+  Write-Info ''
+}
+
 function Show-FirstBootGuidance {
   param([string[]]$Distributions)
 
@@ -386,11 +480,12 @@ function Invoke-Onboarding {
     $plan += 'Install Docker Desktop (manual only)'
     $plan += 'Configure Docker Desktop WSL integration (manual guidance)'
     $plan += 'Authenticate Git Credential Manager with GitHub (manual only)'
+    $plan += 'Verify WSL user setup and guide through first-boot if needed'
   }
 
   $plan += @(
     'Detect registered WSL distributions',
-    'Outline first-boot guidance for Ubuntu'
+    'Hand off to setup.sh inside WSL for platform-specific configuration'
   )
 
   Show-ExecutionPlan -Steps $plan
@@ -435,7 +530,14 @@ function Invoke-Onboarding {
   # Check what distributions are registered
   $distributions = @(Get-WslDistributionData)
   Write-WslDistributionStatus -Distributions $distributions
-  Show-FirstBootGuidance -Distributions $distributions
+
+  # Manual-only: WSL first-boot user creation
+  if (-not $script:OnboardState.IsCI) {
+    Invoke-WslFirstBootSetup
+  }
+
+  # Final handoff to setup.sh inside WSL (runs for BOTH manual and CI)
+  Invoke-WslHandoff
 
   if ($script:OnboardState.DryRun) {
     Write-Info 'Dry-run mode: no system changes were made.'

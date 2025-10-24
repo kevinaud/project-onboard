@@ -57,15 +57,29 @@ Describe 'setup.ps1' {
 
       Mock Invoke-WslCommand { @() }
 
-      $output = Invoke-Onboarding -DryRun
+      $originalCI = $env:CI
+      if ($null -ne $originalCI) {
+        Remove-Item Env:\CI -ErrorAction SilentlyContinue
+      }
 
-      $output | Should -Contain "[WARN] Optional feature 'Windows Subsystem for Linux' is not enabled (state: Disabled)."
-      $output | Should -Contain "[INFO] DRY-RUN: Would run: dism.exe /online /enable-feature /featurename:Microsoft-Windows-Subsystem-Linux /all /norestart"
-      $output | Should -Contain "[WARN] No WSL distributions are currently registered."
-      $output | Should -Contain '[INFO] Ubuntu distribution not detected. After enabling optional features, install it with: wsl --install -d Ubuntu'
+      try {
+        $output = Invoke-Onboarding -DryRun
 
-      Assert-MockCalled Get-OptionalFeatureRecord -Times 2 -Exactly
-      Assert-MockCalled Invoke-WslCommand -Times 1 -Exactly
+        $output | Should -Contain "[WARN] Optional feature 'Windows Subsystem for Linux' is not enabled (state: Disabled)."
+        $output | Should -Contain "[INFO] DRY-RUN: Would run: dism.exe /online /enable-feature /featurename:Microsoft-Windows-Subsystem-Linux /all /norestart"
+        $output | Should -Contain "[WARN] No WSL distributions are currently registered."
+        # Verify WSL first-boot setup is included even when no distributions exist
+        ($output -join "`n") | Should -Match 'WSL First-Boot User Setup'
+
+        Assert-MockCalled Get-OptionalFeatureRecord -Times 2 -Exactly
+        Assert-MockCalled Invoke-WslCommand -Times 1 -Exactly
+      } finally {
+        if ($null -ne $originalCI) {
+          $env:CI = $originalCI
+        } else {
+          Remove-Item Env:\CI -ErrorAction SilentlyContinue
+        }
+      }
     }
   }
 
@@ -159,7 +173,7 @@ Describe 'setup.ps1' {
   }
 
   Context 'first boot guidance' {
-    It 'encourages first launch when Ubuntu is registered' {
+    It 'includes first-boot setup step in execution plan' {
       $featureStates = @{
         'Microsoft-Windows-Subsystem-Linux' = 'Enabled'
         'VirtualMachinePlatform'           = 'Enabled'
@@ -178,9 +192,13 @@ Describe 'setup.ps1' {
 
       Mock Invoke-WslCommand { @('Ubuntu', 'docker-desktop') }
 
+      # Ensure not in CI mode
+      Remove-Item Env:\CI -ErrorAction SilentlyContinue
+
       $output = Invoke-Onboarding -DryRun
 
-      $output | Should -Contain '[INFO] Ubuntu distribution detected. Launch it at least once to complete first-boot user creation before continuing.'
+      ($output -join "`n") | Should -Match 'Verify WSL user setup and guide through first-boot'
+      ($output -join "`n") | Should -Match 'WSL First-Boot User Setup'
     }
   }
 
@@ -231,6 +249,223 @@ Describe 'setup.ps1' {
   $output | Should -Contain '[WARN] Dry-run or non-interactive mode: Skipping Docker Desktop confirmation prompt.'
   $output | Should -Contain '[INFO] Git Credential Manager Authentication'
   $output | Should -Contain '[INFO] DRY-RUN: Would run: & ''C:\Program Files\Git\mingw64\bin\git-credential-manager.exe'' configure'
+    }
+  }
+
+  Context 'WSL first-boot setup (Iteration 6)' {
+    It 'shows dry-run action for WSL user check' {
+      Mock Get-OptionalFeatureRecord {
+        [pscustomobject]@{
+          FeatureName = 'Microsoft-Windows-Subsystem-Linux'
+          State       = 'Enabled'
+        }
+      }
+
+      Mock Invoke-WslCommand { @('Ubuntu') }
+
+      # Ensure not in CI mode for this test
+      Remove-Item Env:\CI -ErrorAction SilentlyContinue
+
+      $output = Invoke-Onboarding -DryRun
+
+      ($output -join "`n") | Should -Match 'WSL First-Boot User Setup'
+      ($output -join "`n") | Should -Match 'Would check WSL user existence'
+      ($output -join "`n") | Should -Match 'Would launch interactive WSL setup'
+    }
+
+    It 'skips first-boot check in CI mode' {
+      Mock Get-OptionalFeatureRecord {
+        [pscustomobject]@{
+          FeatureName = 'Microsoft-Windows-Subsystem-Linux'
+          State       = 'Enabled'
+        }
+      }
+
+      Mock Invoke-WslCommand { @('Ubuntu') }
+
+      # Set CI environment
+      $env:CI = 'true'
+      try {
+        $output = Invoke-Onboarding -DryRun
+
+        ($output -join "`n") | Should -Not -Match 'WSL First-Boot User Setup'
+        ($output -join "`n") | Should -Not -Match 'Would check WSL user existence'
+      } finally {
+        Remove-Item Env:\CI -ErrorAction SilentlyContinue
+      }
+    }
+
+    It 'includes first-boot verification in execution plan for manual mode' {
+      Mock Get-OptionalFeatureRecord {
+        [pscustomobject]@{
+          FeatureName = 'Microsoft-Windows-Subsystem-Linux'
+          State       = 'Enabled'
+        }
+      }
+
+      Mock Invoke-WslCommand { @('Ubuntu') }
+
+      # Ensure not in CI mode
+      Remove-Item Env:\CI -ErrorAction SilentlyContinue
+
+      $output = Invoke-Onboarding -DryRun
+
+      ($output -join "`n") | Should -Match 'Verify WSL user setup and guide through first-boot'
+    }
+  }
+
+  Context 'WSL handoff to setup.sh (Iteration 6)' {
+    It 'shows dry-run action for handoff with no flags' {
+      Mock Get-OptionalFeatureRecord {
+        [pscustomobject]@{
+          FeatureName = 'Microsoft-Windows-Subsystem-Linux'
+          State       = 'Enabled'
+        }
+      }
+
+      Mock Invoke-WslCommand { @('Ubuntu') }
+
+      # Ensure not in CI mode
+      Remove-Item Env:\CI -ErrorAction SilentlyContinue
+
+      $output = Invoke-Onboarding -DryRun
+
+      ($output -join "`n") | Should -Match 'Handing off to setup\.sh inside WSL'
+      ($output -join "`n") | Should -Match 'Would execute.*wsl.*bash'
+      ($output -join "`n") | Should -Match 'curl.*setup\.sh'
+    }
+
+    It 'constructs handoff with NonInteractive flag' {
+      Mock Get-OptionalFeatureRecord {
+        [pscustomobject]@{
+          FeatureName = 'Microsoft-Windows-Subsystem-Linux'
+          State       = 'Enabled'
+        }
+      }
+
+      Mock Invoke-WslCommand { @('Ubuntu') }
+
+      # Ensure not in CI mode
+      Remove-Item Env:\CI -ErrorAction SilentlyContinue
+
+      $output = Invoke-Onboarding -DryRun -NonInteractive
+
+      ($output -join "`n") | Should -Match '--non-interactive'
+    }
+
+    It 'constructs handoff with Verbose flag' {
+      Mock Get-OptionalFeatureRecord {
+        [pscustomobject]@{
+          FeatureName = 'Microsoft-Windows-Subsystem-Linux'
+          State       = 'Enabled'
+        }
+      }
+
+      Mock Invoke-WslCommand { @('Ubuntu') }
+
+      # Ensure not in CI mode
+      Remove-Item Env:\CI -ErrorAction SilentlyContinue
+
+      $output = Invoke-Onboarding -DryRun -Verbose
+
+      ($output -join "`n") | Should -Match '--verbose'
+    }
+
+    It 'constructs handoff with NoOptional flag' {
+      Mock Get-OptionalFeatureRecord {
+        [pscustomobject]@{
+          FeatureName = 'Microsoft-Windows-Subsystem-Linux'
+          State       = 'Enabled'
+        }
+      }
+
+      Mock Invoke-WslCommand { @('Ubuntu') }
+
+      # Ensure not in CI mode
+      Remove-Item Env:\CI -ErrorAction SilentlyContinue
+
+      $output = Invoke-Onboarding -DryRun -NoOptional
+
+      ($output -join "`n") | Should -Match '--no-optional'
+    }
+
+    It 'constructs handoff with Workspace flag' {
+      Mock Get-OptionalFeatureRecord {
+        [pscustomobject]@{
+          FeatureName = 'Microsoft-Windows-Subsystem-Linux'
+          State       = 'Enabled'
+        }
+      }
+
+      Mock Invoke-WslCommand { @('Ubuntu') }
+
+      # Ensure not in CI mode
+      Remove-Item Env:\CI -ErrorAction SilentlyContinue
+
+      $output = Invoke-Onboarding -DryRun -Workspace '/custom/path'
+
+      ($output -join "`n") | Should -Match "--workspace /custom/path"
+    }
+
+    It 'passes all flags correctly when combined' {
+      Mock Get-OptionalFeatureRecord {
+        [pscustomobject]@{
+          FeatureName = 'Microsoft-Windows-Subsystem-Linux'
+          State       = 'Enabled'
+        }
+      }
+
+      Mock Invoke-WslCommand { @('Ubuntu') }
+
+      # Ensure not in CI mode
+      Remove-Item Env:\CI -ErrorAction SilentlyContinue
+
+      $output = Invoke-Onboarding -DryRun -NonInteractive -Verbose -NoOptional -Workspace '/test'
+
+      ($output -join "`n") | Should -Match '--non-interactive'
+      ($output -join "`n") | Should -Match '--verbose'
+      ($output -join "`n") | Should -Match '--no-optional'
+      ($output -join "`n") | Should -Match "--workspace /test"
+    }
+
+    It 'includes WSL handoff in execution plan' {
+      Mock Get-OptionalFeatureRecord {
+        [pscustomobject]@{
+          FeatureName = 'Microsoft-Windows-Subsystem-Linux'
+          State       = 'Enabled'
+        }
+      }
+
+      Mock Invoke-WslCommand { @('Ubuntu') }
+
+      # Ensure not in CI mode
+      Remove-Item Env:\CI -ErrorAction SilentlyContinue
+
+      $output = Invoke-Onboarding -DryRun
+
+      ($output -join "`n") | Should -Match 'Hand off to setup\.sh inside WSL'
+    }
+
+    It 'includes handoff in CI mode too' {
+      Mock Get-OptionalFeatureRecord {
+        [pscustomobject]@{
+          FeatureName = 'Microsoft-Windows-Subsystem-Linux'
+          State       = 'Enabled'
+        }
+      }
+
+      Mock Invoke-WslCommand { @('Ubuntu') }
+
+      # Set CI environment
+      $env:CI = 'true'
+      try {
+        $output = Invoke-Onboarding -DryRun
+
+        ($output -join "`n") | Should -Match 'Hand off to setup\.sh inside WSL'
+        ($output -join "`n") | Should -Match 'Handing off to setup\.sh inside WSL'
+      } finally {
+        Remove-Item Env:\CI -ErrorAction SilentlyContinue
+      }
     }
   }
 }
