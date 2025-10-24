@@ -86,6 +86,33 @@ Use the reusable timeout wrapper to keep long-running validations from hanging:
 ./scripts/run_with_timeout.sh 300 -- pwsh -NoProfile -Command "Invoke-Pester -Path tests/setup.Tests.ps1"
 ```
 
+## GitHub Actions
+
+### Windows E2E Onboarding Workflow
+
+The `.github/workflows/e2e-windows.yml` workflow provisions a Windows runner, enables WSL, installs Docker Engine inside Ubuntu, and executes the full onboarding flow including the Dev Container bring-up for `mental-health-app-frontend`.
+
+| Requirement | Value |
+| --- | --- |
+| Trigger | `push` to `main`, pull requests targeting `main`, or manual `workflow_dispatch` |
+| Required secret | `PROJECT_ONBOARD_PAT` |
+
+You must provide a repository or organization secret named `PROJECT_ONBOARD_PAT` containing a GitHub personal access token with at least the `repo` scope so the workflow can clone the private `psps-mental-health-app/mental-health-app-frontend` repository inside WSL. The workflow uploads a `devcontainer-log` artifact to help troubleshoot `devcontainer up` failures and always prunes Docker resources before exiting.
+
+To simplify managing that secret, run `scripts/manage_pat_secret.sh` from a workstation that already has the GitHub CLI authenticated and provide the PAT you created:
+
+```bash
+./scripts/manage_pat_secret.sh --token-value "$PROJECT_ONBOARD_PAT"
+```
+
+You can alternatively read the token from a file (for example one produced by a password manager export):
+
+```bash
+./scripts/manage_pat_secret.sh --token-file /path/to/token.txt
+```
+
+The helper validates the input, then stores it as the `PROJECT_ONBOARD_PAT` Actions secret for the current repository. Use `--dry-run` to preview the action, or `--repo owner/name` to target a different repository. The script never mutates your GitHub CLI credentials; it only uploads the PAT you pass in.
+
 ## Troubleshooting
 
 ### GitHub Authentication Fails

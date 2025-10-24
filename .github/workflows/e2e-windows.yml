@@ -17,6 +17,7 @@ jobs:
     env:
       CI: "true"
       GH_ACTOR: ${{ github.actor }}
+      PROJECT_ONBOARD_PAT: ${{ secrets.PROJECT_ONBOARD_PAT }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -99,8 +100,6 @@ jobs:
             throw 'PROJECT_ONBOARD_PAT secret is required to clone the private repository.'
           }
 
-          $env:PROJECT_ONBOARD_PAT = $pat
-
           $script = @'
           set -euo pipefail
           git config --global url."https://${GH_ACTOR}:${PROJECT_ONBOARD_PAT}@github.com/".insteadOf "https://github.com/"
@@ -111,12 +110,12 @@ jobs:
           cat <<'EOF' >/tmp/git-auth.sh
           $script
           EOF
-          env GH_ACTOR="$env:GH_ACTOR" PROJECT_ONBOARD_PAT="$env:PROJECT_ONBOARD_PAT" bash /tmp/git-auth.sh
+          bash /tmp/git-auth.sh
           rm -f /tmp/git-auth.sh
           "@
           $command = ($command -split "`n" | ForEach-Object { $_.TrimStart() }) -join "`n"
 
-          wsl.exe -u root -e bash -c "$command"
+          wsl.exe -e bash -lc "$command"
 
       - name: Run setup.sh inside WSL
         shell: pwsh
@@ -132,4 +131,90 @@ jobs:
           '@
           $handoff = ($handoff -split "`n" | ForEach-Object { $_.TrimStart() }) -join "`n"
 
-          wsl.exe -u root -e bash -lc "$handoff"
+          wsl.exe -e bash -lc "$handoff"
+
+      - name: Install Dev Containers CLI in WSL
+        shell: pwsh
+        run: |
+          $script = @'
+          set -euo pipefail
+          if ! command -v devcontainer >/dev/null 2>&1; then
+            if ! command -v npm >/dev/null 2>&1; then
+              apt-get update
+              apt-get install -y nodejs npm
+            fi
+            npm install -g @devcontainers/cli@latest
+          fi
+          devcontainer --version
+          '@
+          $script = ($script -split "`n" | ForEach-Object { $_.TrimStart() }) -join "`n"
+
+          $command = @"
+          cat <<'EOF' >/tmp/install-devcontainer-cli.sh
+          $script
+          EOF
+          bash /tmp/install-devcontainer-cli.sh
+          rm -f /tmp/install-devcontainer-cli.sh
+          "@
+          $command = ($command -split "`n" | ForEach-Object { $_.TrimStart() }) -join "`n"
+
+          wsl.exe -u root -e bash -lc "$command"
+
+      - name: Run devcontainer up inside WSL
+        shell: pwsh
+        run: |
+          if (-not $env:WSL_WORKDIR) {
+            throw 'WSL_WORKDIR environment variable was not set.'
+          }
+
+          $script = @'
+          set -euo pipefail
+          workspace_dir="${HOME}/projects/mental-health-app-frontend"
+          log_path="${WSL_WORKDIR}/devcontainer-ci.log"
+          if [ ! -d "${workspace_dir}" ]; then
+            echo "Devcontainer workspace ${workspace_dir} not found." >&2
+            exit 1
+          fi
+          rm -f "${log_path}"
+          devcontainer up --workspace-folder "${workspace_dir}" --remove-existing-container --log-level info |& tee "${log_path}"
+          '@
+          $script = ($script -split "`n" | ForEach-Object { $_.TrimStart() }) -join "`n"
+
+          $command = @"
+          cat <<'EOF' >/tmp/devcontainer-up.sh
+          $script
+          EOF
+          bash /tmp/devcontainer-up.sh
+          rm -f /tmp/devcontainer-up.sh
+          "@
+          $command = ($command -split "`n" | ForEach-Object { $_.TrimStart() }) -join "`n"
+
+          wsl.exe -e bash -lc "$command"
+
+      - name: Upload devcontainer log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: devcontainer-log
+          path: devcontainer-ci.log
+
+      - name: Cleanup Docker resources
+        if: always()
+        shell: pwsh
+        run: |
+          $script = @'
+          set -euo pipefail
+          docker system prune --all --force --volumes
+          '@
+          $script = ($script -split "`n" | ForEach-Object { $_.TrimStart() }) -join "`n"
+
+          $command = @"
+          cat <<'EOF' >/tmp/docker-cleanup.sh
+          $script
+          EOF
+          bash /tmp/docker-cleanup.sh
+          rm -f /tmp/docker-cleanup.sh
+          "@
+          $command = ($command -split "`n" | ForEach-Object { $_.TrimStart() }) -join "`n"
+
+          wsl.exe -u root -e bash -lc "$command"
