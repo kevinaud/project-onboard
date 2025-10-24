@@ -186,37 +186,14 @@ function Install-UbuntuDistribution {
 
   if ($script:OnboardState.DryRun) {
     Write-DryRunAction 'Would run: wsl --install -d Ubuntu-22.04 --no-launch'
-    Write-DryRunAction 'Would wait for distribution to be registered'
     return
   }
 
   try {
+    # Install Ubuntu distribution using --no-launch to prevent interactive setup
+    # This leaves the distribution in a pristine state where commands can be run as root
     $installResult = & wsl.exe --install -d Ubuntu-22.04 --no-launch 2>&1
     Write-VerboseMessage "wsl --install output: $($installResult -join ' ')"
-
-    # Wait for the distribution to be registered
-    # The --no-launch flag prevents interactive user setup, leaving the distro
-    # in a pristine state where we can run commands as root via wsl -u root -e
-    Write-Info 'Waiting for Ubuntu-22.04 to be registered...'
-    $maxRetries = 30
-    $retryCount = 0
-    $distroFound = $false
-
-    while ($retryCount -lt $maxRetries) {
-      Start-Sleep -Seconds 2
-      $distributions = @(Get-WslDistributionData)
-      if ($distributions -contains 'Ubuntu-22.04') {
-        $distroFound = $true
-        Write-Info 'Ubuntu-22.04 is now registered.'
-        break
-      }
-      $retryCount++
-      Write-VerboseMessage "Waiting for Ubuntu-22.04 registration (attempt $retryCount/$maxRetries)..."
-    }
-
-    if (-not $distroFound) {
-      throw 'Ubuntu-22.04 installation timed out - distribution was not registered within expected time.'
-    }
 
     Write-Info 'Ubuntu-22.04 installed successfully.'
   } catch {
