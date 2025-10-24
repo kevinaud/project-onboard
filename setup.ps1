@@ -181,37 +181,143 @@ function Update-WslComponent {
   }
 }
 
-function Install-UbuntuDistribution {
-  Write-Info 'Installing Ubuntu-22.04...'
+function Import-UbuntuDistributionFromAppx {
+  param(
+    [string]$DistributionName = 'Ubuntu-22.04'
+  )
+
+  $downloadUrl = 'https://aka.ms/wslubuntu2204'
+  $tempRoot = Join-Path -Path ([System.IO.Path]::GetTempPath()) -ChildPath 'project-onboard-ubuntu-2204'
+  $appxPath = Join-Path -Path $tempRoot -ChildPath 'ubuntu-2204.appx'
+  $extractPath = Join-Path -Path $tempRoot -ChildPath 'extracted'
+  $installLocation = Join-Path -Path 'C:\wsl' -ChildPath $DistributionName
+
+  Write-Info 'Attempting manual Ubuntu import using official rootfs package...'
+  Write-VerboseMessage "Ubuntu manual import temp directory: $tempRoot"
 
   if ($script:OnboardState.DryRun) {
-    Write-DryRunAction 'Would run: wsl --install -d Ubuntu-22.04 --no-launch'
+    Write-DryRunAction "Would download Ubuntu rootfs from $downloadUrl"
+    Write-DryRunAction "Would extract appx to $extractPath and import into $installLocation via wsl --import"
     return
   }
 
   try {
-    # Install Ubuntu distribution using --no-launch to prevent interactive setup
-    # This leaves the distribution in a pristine state where commands can be run as root
-    Write-VerboseMessage 'Running: wsl --install -d Ubuntu-22.04 --no-launch'
-    $installResult = & wsl.exe --install -d Ubuntu-22.04 --no-launch 2>&1
-    Write-VerboseMessage "wsl --install output: $($installResult -join "`n")"
+    if (Test-Path $tempRoot) {
+      Remove-Item -Path $tempRoot -Recurse -Force -ErrorAction Stop
+    }
 
-    # Verify the distribution was registered by checking wsl -l -v
+    New-Item -Path $tempRoot -ItemType Directory -Force | Out-Null
+
+    Write-Info 'Downloading Ubuntu rootfs package...'
+  Invoke-WebRequest -Uri $downloadUrl -OutFile $appxPath -ErrorAction Stop
+
+    Write-VerboseMessage "Downloaded appx to $appxPath"
+
+    Write-Info 'Expanding Ubuntu package contents...'
+    Expand-Archive -Path $appxPath -DestinationPath $extractPath -Force
+
+    $tarGzItem = Get-ChildItem -Path $extractPath -Filter 'install.tar.gz' -Recurse | Select-Object -First 1
+    if (-not $tarGzItem) {
+      throw 'Unable to locate install.tar.gz inside the downloaded Ubuntu package.'
+    }
+
+    Write-VerboseMessage "Found install.tar.gz at $($tarGzItem.FullName)"
+
+    if (Test-Path $installLocation) {
+      Write-VerboseMessage "Removing existing install directory at $installLocation"
+      Remove-Item -Path $installLocation -Recurse -Force -ErrorAction Stop
+    }
+
+    $installRoot = Split-Path -Path $installLocation -Parent
+    if (-not (Test-Path $installRoot)) {
+      Write-VerboseMessage "Creating WSL install root at $installRoot"
+      New-Item -Path $installRoot -ItemType Directory -Force | Out-Null
+    }
+
+    New-Item -Path $installLocation -ItemType Directory -Force | Out-Null
+
+    Write-Info 'Importing Ubuntu distribution via wsl --import...'
+    $importArgs = @('--import', $DistributionName, $installLocation, $tarGzItem.FullName, '--version', '2')
+    $importResult = & wsl.exe @importArgs 2>&1
+    $importExitCode = $LASTEXITCODE
+    Write-VerboseMessage "wsl --import output: $($importResult -join ' ')"
+
+    if ($importExitCode -ne 0) {
+      throw "wsl --import exited with code $importExitCode"
+    }
+
+    Write-Info 'Setting Ubuntu-22.04 as the default WSL distribution...'
+    $setDefaultResult = & wsl.exe --set-default $DistributionName 2>&1
+    $setDefaultExit = $LASTEXITCODE
+    Write-VerboseMessage "wsl --set-default output: $($setDefaultResult -join ' ')"
+
+    if ($setDefaultExit -ne 0) {
+      throw "wsl --set-default exited with code $setDefaultExit"
+    }
+
+    Write-Info 'Ubuntu distribution imported successfully.'
+  } catch {
+    throw "Manual import of Ubuntu distribution failed: $($_.Exception.Message)"
+  } finally {
+    try {
+      if (Test-Path $tempRoot) {
+        Remove-Item -Path $tempRoot -Recurse -Force
+      }
+    } catch {
+      Write-VerboseMessage "Cleanup of temp directory $tempRoot failed: $($_.Exception.Message)"
+    }
+  }
+}
+
+function Install-UbuntuDistribution {
+  Write-Info 'Ensuring Ubuntu-22.04 distribution is installed...'
+
+  $existingDistros = @(Get-WslDistributionData)
+  if ($existingDistros -contains 'Ubuntu-22.04') {
+    Write-Info 'Ubuntu-22.04 is already registered. Skipping installation.'
+    return
+  }
+
+  if ($script:OnboardState.DryRun) {
+    Write-DryRunAction 'Would install Ubuntu-22.04 via wsl --install and fall back to manual import if needed'
+    return
+  }
+
+  try {
+    Write-Info 'Attempting installation via wsl --install...'
+    $installArgs = @('--install', '-d', 'Ubuntu-22.04', '--no-launch')
+    $installOutput = & wsl.exe @installArgs 2>&1
+    $installExitCode = $LASTEXITCODE
+    Write-VerboseMessage "wsl --install output: $($installOutput -join ' ')"
+    Write-VerboseMessage "wsl --install exit code: $installExitCode"
+
+    if ($installExitCode -ne 0) {
+      Write-Warn "wsl --install exited with code $installExitCode. Will attempt manual import."
+    } else {
+      Start-Sleep -Seconds 5
+    }
+
+    $existingDistros = @(Get-WslDistributionData)
+    if ($existingDistros -contains 'Ubuntu-22.04') {
+      Write-Info 'Ubuntu distribution detected after wsl --install.'
+      return
+    }
+
+    Write-Warn 'Ubuntu distribution not detected after wsl --install. Falling back to manual import.'
+    Import-UbuntuDistributionFromAppx -DistributionName 'Ubuntu-22.04'
+
+    $existingDistros = @(Get-WslDistributionData)
+    if (-not ($existingDistros -contains 'Ubuntu-22.04')) {
+      throw 'Ubuntu distribution is still not registered after manual import attempt.'
+    }
+
+    Write-Info 'Ubuntu distribution registered successfully after manual import.'
+
     Write-VerboseMessage 'Verifying distribution registration with wsl -l -v'
     $verifyResult = & wsl.exe -l -v 2>&1
     Write-VerboseMessage "wsl -l -v output: $($verifyResult -join "`n")"
-    
-    # Check if Ubuntu-22.04 appears in the list
-    $distroFound = $verifyResult | Where-Object { $_ -match 'Ubuntu-22\.04' }
-    if ($distroFound) {
-      Write-Info "Ubuntu-22.04 installed and registered successfully."
-    } else {
-      Write-Warn "wsl --install completed but Ubuntu-22.04 not found in wsl -l -v output."
-      Write-Warn "This may indicate the distribution is still being registered."
-      Write-Info "Ubuntu-22.04 installation command completed."
-    }
   } catch {
-    throw "Failed to install Ubuntu-22.04: $($_.Exception.Message)"
+    throw "Failed to install Ubuntu: $($_.Exception.Message)"
   }
 }
 
