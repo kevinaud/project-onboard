@@ -34,8 +34,8 @@ Describe 'setup.ps1' {
       $output | Should -Contain "[INFO] Detected WSL distributions: Ubuntu"
       $output | Should -Contain '[INFO] Dry-run mode: no system changes were made.'
 
-      Assert-MockCalled Get-OptionalFeatureRecord -Times 2 -Exactly
-      Assert-MockCalled Invoke-WslCommand -Times 1 -Exactly
+  Assert-MockCalled Get-OptionalFeatureRecord -Times 2 -Exactly
+  Assert-MockCalled Invoke-WslCommand -Times 2 -Exactly
     }
 
     It 'highlights when optional features are disabled and simulates enablement in dry-run' {
@@ -71,8 +71,8 @@ Describe 'setup.ps1' {
         # Verify WSL first-boot setup is included even when no distributions exist
         ($output -join "`n") | Should -Match 'WSL First-Boot User Setup'
 
-        Assert-MockCalled Get-OptionalFeatureRecord -Times 2 -Exactly
-        Assert-MockCalled Invoke-WslCommand -Times 1 -Exactly
+  Assert-MockCalled Get-OptionalFeatureRecord -Times 2 -Exactly
+  Assert-MockCalled Invoke-WslCommand -Times 2 -Exactly
       } finally {
         if ($null -ne $originalCI) {
           $env:CI = $originalCI
@@ -165,7 +165,7 @@ Describe 'setup.ps1' {
       $output | Should -Contain '[INFO] DRY-RUN: Would run: dism.exe /online /enable-feature /featurename:VirtualMachinePlatform /all /norestart'
       $output | Should -Contain '[INFO] DRY-RUN: Would run: wsl --update'
       $output | Should -Contain '[INFO] DRY-RUN: Would run: wsl --set-default-version 2'
-      $output | Should -Contain '[INFO] DRY-RUN: Would run: wsl --install -d Ubuntu-22.04 --no-launch'
+  $output | Should -Contain '[INFO] DRY-RUN: Would install Ubuntu-22.04 via wsl --install and fall back to manual import if needed'
       $output | Should -Contain '[INFO] DRY-RUN: Would run: winget install --id Git.Git -e --source winget'
 
       Assert-MockCalled Get-OptionalFeatureRecord -Times 2 -Exactly
@@ -461,8 +461,8 @@ Describe 'setup.ps1' {
       try {
         $output = Invoke-Onboarding -DryRun
 
-        ($output -join "`n") | Should -Match 'Hand off to setup\.sh inside WSL'
-        ($output -join "`n") | Should -Match 'Handing off to setup\.sh inside WSL'
+  ($output -join "`n") | Should -Match 'Hand off to setup\.sh inside WSL'
+  ($output -join "`n") | Should -Match 'CI mode: Skipping setup\.sh handoff\. The GitHub Actions workflow will handle subsequent steps\.'
       } finally {
         Remove-Item Env:\CI -ErrorAction SilentlyContinue
       }
