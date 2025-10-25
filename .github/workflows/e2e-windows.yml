@@ -125,14 +125,25 @@ jobs:
             throw 'WSL_WORKDIR environment variable was not set.'
           }
 
-          $handoff = @'
+          $handoffScript = @'
+          #!/usr/bin/env bash
           set -euo pipefail
           cd "$WSL_WORKDIR"
           ONBOARD_DRY_RUN=0 ./setup.sh --non-interactive --no-optional
           '@
-          $handoff = ($handoff -split "`n" | ForEach-Object { $_.TrimStart() }) -join "`n"
+          $handoffScript = ($handoffScript -split "`n" | ForEach-Object { $_.TrimStart() }) -join "`n"
 
-          wsl.exe -e bash -lc "$handoff"
+          $command = @"
+          cat <<'EOF' >/tmp/onboard-handoff.sh
+          $handoffScript
+          EOF
+          chmod +x /tmp/onboard-handoff.sh
+          bash /tmp/onboard-handoff.sh
+          rm -f /tmp/onboard-handoff.sh
+          "@
+          $command = ($command -split "`n" | ForEach-Object { $_.TrimStart() }) -join "`n"
+
+          wsl.exe -e bash -lc "$command"
 
       - name: Install Dev Containers CLI in WSL
         shell: pwsh
