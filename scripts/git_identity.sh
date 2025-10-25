@@ -6,9 +6,9 @@ IFS=$' \t\n'
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 REPO_ROOT=$(cd "${SCRIPT_DIR}/.." && pwd)
 
-# shellcheck source=utils.sh
+# shellcheck source=./utils.sh
 . "${REPO_ROOT}/scripts/utils.sh"
-# shellcheck source=detect.sh
+# shellcheck source=./detect.sh
 . "${REPO_ROOT}/scripts/detect.sh"
 
 ensure_environment_loaded() {
