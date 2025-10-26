@@ -38,6 +38,181 @@ function Write-DryRunAction {
   }
 }
 
+function Remove-JsonComments {
+  param([string]$Content)
+
+  if ([string]::IsNullOrWhiteSpace($Content)) {
+    return $Content
+  }
+
+  $pattern = '(?s)//.*?$|/\*.*?\*/'
+  return [System.Text.RegularExpressions.Regex]::Replace($Content, $pattern, [string]::Empty)
+}
+
+function ConvertTo-Hashtable {
+  param([psobject]$Object)
+
+  $result = @{}
+  if ($null -eq $Object) {
+    return $result
+  }
+
+  if ($Object -is [hashtable]) {
+    return $Object
+  }
+
+  foreach ($property in $Object.PSObject.Properties) {
+    $result[$property.Name] = $property.Value
+  }
+
+  return $result
+}
+
+function Get-VSCodeSettingsPath {
+  if (-not $env:APPDATA) {
+    return $null
+  }
+
+  return Join-Path -Path $env:APPDATA -ChildPath 'Code\User\settings.json'
+}
+
+function Ensure-VSCodeDotfileSettings {
+  param([string]$SettingsPath)
+
+  $defaults = [ordered]@{
+    'dotfiles.repository'     = 'kevinaud/dotfiles'
+    'dotfiles.targetPath'     = '~/dotfiles'
+    'dotfiles.installCommand' = 'install.sh'
+  }
+
+  if (-not $PSBoundParameters.ContainsKey('SettingsPath')) {
+    $SettingsPath = Get-VSCodeSettingsPath
+  }
+
+  if ([string]::IsNullOrWhiteSpace($SettingsPath)) {
+    Write-Warn 'Unable to determine VS Code settings path; skipping dotfiles configuration.'
+    return
+  }
+
+  if ($script:OnboardState.DryRun) {
+    Write-DryRunAction "Ensure VS Code settings at $SettingsPath configure kevinaud/dotfiles as the dev container dotfiles repository."
+    return
+  }
+
+  $settings = @{}
+
+  try {
+    if (Test-Path -Path $SettingsPath) {
+      $raw = Get-Content -Path $SettingsPath -Raw -ErrorAction Stop
+      if (-not [string]::IsNullOrWhiteSpace($raw)) {
+        try {
+          $settings = ConvertTo-Hashtable (ConvertFrom-Json -InputObject $raw -ErrorAction Stop)
+        } catch {
+          $stripped = Remove-JsonComments -Content $raw
+          $settings = ConvertTo-Hashtable (ConvertFrom-Json -InputObject $stripped -ErrorAction Stop)
+        }
+      }
+    }
+  } catch {
+    Write-Warn "Failed to read existing VS Code settings at ${SettingsPath}: $($_.Exception.Message)"
+    $settings = @{}
+  }
+
+  $changed = $false
+  foreach ($key in $defaults.Keys) {
+    if (-not $settings.ContainsKey($key)) {
+      $settings[$key] = $defaults[$key]
+      $changed = $true
+    }
+  }
+
+  if (-not $changed) {
+    Write-Info 'VS Code settings already specify kevinaud/dotfiles for dev container configuration.'
+    return
+  }
+
+  try {
+    $settingsDirectory = Split-Path -Path $SettingsPath -Parent
+    if (-not (Test-Path -Path $settingsDirectory)) {
+      New-Item -Path $settingsDirectory -ItemType Directory -Force | Out-Null
+    }
+
+    $json = ($settings | ConvertTo-Json -Depth 8)
+    Set-Content -Path $SettingsPath -Value ($json + [Environment]::NewLine)
+    Write-Info "Updated VS Code settings at ${SettingsPath} to configure kevinaud/dotfiles."
+  } catch {
+    Write-Warn "Failed to update VS Code settings at ${SettingsPath}: $($_.Exception.Message)"
+  }
+}
+
+function Get-VSCodeCliCommand {
+  $command = Get-Command -Name code -ErrorAction SilentlyContinue
+  if ($command) {
+    return $command.Path
+  }
+
+  $defaultPath = Join-Path -Path $env:ProgramFiles -ChildPath 'Microsoft VS Code\bin\code.cmd'
+  if ($defaultPath -and (Test-Path -Path $defaultPath)) {
+    return $defaultPath
+  }
+
+  $userInstallPath = Join-Path -Path $env:LOCALAPPDATA -ChildPath 'Programs\Microsoft VS Code\bin\code.cmd'
+  if ($userInstallPath -and (Test-Path -Path $userInstallPath)) {
+    return $userInstallPath
+  }
+
+  return $null
+}
+
+function Ensure-VSCodeInstalled {
+  Write-Info 'Ensuring Visual Studio Code is installed...'
+
+  $existingCli = Get-VSCodeCliCommand
+  if ($existingCli) {
+    Write-VerboseMessage "Detected VS Code CLI at $existingCli."
+    return
+  }
+
+  if ($script:OnboardState.DryRun) {
+    Write-DryRunAction 'Would run: winget install --id Microsoft.VisualStudioCode -e --source winget'
+    return
+  }
+
+  try {
+    $wingetResult = & winget install --id Microsoft.VisualStudioCode -e --source winget 2>&1
+    Write-VerboseMessage "winget install Visual Studio Code output: $($wingetResult -join ' ')"
+  } catch {
+    throw "Failed to install Visual Studio Code: $($_.Exception.Message)"
+  }
+}
+
+function Ensure-VSCodeRemoteExtensionPack {
+  Write-Info 'Ensuring VS Code Remote Development extension pack is installed...'
+
+  $codeCli = Get-VSCodeCliCommand
+
+  if (-not $codeCli) {
+    if ($script:OnboardState.DryRun) {
+      Write-DryRunAction 'Would run: code --install-extension ms-vscode-remote.vscode-remote-extensionpack --force'
+    } else {
+      Write-Warn 'Visual Studio Code CLI not found. Skipping extension installation.'
+    }
+    return
+  }
+
+  if ($script:OnboardState.DryRun) {
+    Write-DryRunAction "Would run: $codeCli --install-extension ms-vscode-remote.vscode-remote-extensionpack --force"
+    return
+  }
+
+  try {
+    $extensionResult = & $codeCli --install-extension ms-vscode-remote.vscode-remote-extensionpack --force 2>&1
+    Write-VerboseMessage "code --install-extension output: $($extensionResult -join ' ')"
+  } catch {
+    Write-Warn "Failed to install VS Code Remote Development extension pack: $($_.Exception.Message)"
+  }
+}
+
 function Initialize-OnboardState {
   param(
     [switch]$DryRunSwitch,
@@ -67,6 +242,7 @@ function Initialize-OnboardState {
     Verbose        = [bool]$VerboseSwitch
     Workspace      = $defaultWorkspace
     IsCI           = $isCI
+    UbuntuDistribution = $null
   }
 
   if ($script:OnboardState.Verbose) {
@@ -275,14 +451,8 @@ function Import-UbuntuDistributionFromAppx {
       throw "wsl --import exited with code $importExitCode"
     }
 
-    Write-Info 'Setting Ubuntu-22.04 as the default WSL distribution...'
-    $setDefaultResult = & wsl.exe --set-default $DistributionName 2>&1
-    $setDefaultExit = $LASTEXITCODE
-    Write-VerboseMessage "wsl --set-default output: $($setDefaultResult -join ' ')"
-
-    if ($setDefaultExit -ne 0) {
-      throw "wsl --set-default exited with code $setDefaultExit"
-    }
+    Write-Info "Setting $DistributionName as the default WSL distribution..."
+    Set-WslDefaultDistribution -DistributionName $DistributionName
 
     Write-Info 'Ubuntu distribution imported successfully.'
   } catch {
@@ -301,14 +471,63 @@ function Import-UbuntuDistributionFromAppx {
 function Install-UbuntuDistribution {
   Write-Info 'Ensuring Ubuntu-22.04 distribution is installed...'
 
-  $existingDistros = @(Get-WslDistributionData)
-  if ($existingDistros -contains 'Ubuntu-22.04') {
-    Write-Info 'Ubuntu-22.04 is already registered. Skipping installation.'
-    return
+  $allDistributions = @(Get-WslDistributionData)
+  $ubuntuDistributions = @($allDistributions | Where-Object { $_ -like 'Ubuntu-22.04*' })
+
+  if ($ubuntuDistributions.Count -gt 0) {
+    Write-Info "Detected existing Ubuntu-22.04 distributions: $($ubuntuDistributions -join ', ')"
+
+    if ($script:OnboardState.DryRun) {
+      Write-DryRunAction 'Would prompt to select an existing Ubuntu-22.04 distribution or install a new one'
+      $script:OnboardState.UbuntuDistribution = $ubuntuDistributions[0]
+      return
+    }
+
+    $autoSelection = $null
+    if ($script:OnboardState.NonInteractive) {
+      $autoSelection = if ($ubuntuDistributions -contains 'Ubuntu-22.04') {
+        'Ubuntu-22.04'
+      } else {
+        $ubuntuDistributions[0]
+      }
+
+      Write-Warn "Non-interactive mode: automatically selecting existing distribution '$autoSelection'."
+      $script:OnboardState.UbuntuDistribution = $autoSelection
+      Set-WslDefaultDistribution -DistributionName $autoSelection
+      return
+    }
+
+    $selection = Get-UbuntuDistributionSelection -ExistingUbuntuDistributions $ubuntuDistributions -AllDistributions $allDistributions
+
+    if ($selection.Action -eq 'UseExisting') {
+      $selected = [string]$selection.Name
+      Write-Info "Using existing distribution '$selected'."
+      $script:OnboardState.UbuntuDistribution = $selected
+      Set-WslDefaultDistribution -DistributionName $selected
+      return
+    }
+
+    if ($selection.Action -eq 'InstallNew') {
+      $newName = [string]$selection.Name
+      Write-Info "Installing new Ubuntu-22.04 distribution named '$newName'."
+
+      if ($script:OnboardState.DryRun) {
+        Write-DryRunAction "Would import new Ubuntu-22.04 distribution named '$newName' via manual appx download"
+        $script:OnboardState.UbuntuDistribution = $newName
+        return
+      }
+
+      Import-UbuntuDistributionFromAppx -DistributionName $newName
+      $script:OnboardState.UbuntuDistribution = $newName
+      return
+    }
+
+    throw 'Unexpected selection response when choosing Ubuntu distribution.'
   }
 
   if ($script:OnboardState.DryRun) {
     Write-DryRunAction 'Would install Ubuntu-22.04 via wsl --install and fall back to manual import if needed'
+    $script:OnboardState.UbuntuDistribution = 'Ubuntu-22.04'
     return
   }
 
@@ -326,22 +545,24 @@ function Install-UbuntuDistribution {
       Start-Sleep -Seconds 5
     }
 
-    $existingDistros = @(Get-WslDistributionData)
-    if ($existingDistros -contains 'Ubuntu-22.04') {
+    $allDistributions = @(Get-WslDistributionData)
+    if ($allDistributions -contains 'Ubuntu-22.04') {
       Write-Info 'Ubuntu distribution detected after wsl --install.'
+      $script:OnboardState.UbuntuDistribution = 'Ubuntu-22.04'
+      Set-WslDefaultDistribution -DistributionName 'Ubuntu-22.04'
       return
     }
 
     Write-Warn 'Ubuntu distribution not detected after wsl --install. Falling back to manual import.'
     Import-UbuntuDistributionFromAppx -DistributionName 'Ubuntu-22.04'
 
-    $existingDistros = @(Get-WslDistributionData)
-    if (-not ($existingDistros -contains 'Ubuntu-22.04')) {
+    $allDistributions = @(Get-WslDistributionData)
+    if (-not ($allDistributions -contains 'Ubuntu-22.04')) {
       throw 'Ubuntu distribution is still not registered after manual import attempt.'
     }
 
     Write-Info 'Ubuntu distribution registered successfully after manual import.'
-
+    $script:OnboardState.UbuntuDistribution = 'Ubuntu-22.04'
     Write-VerboseMessage 'Verifying distribution registration with wsl -l -v'
     $verifyResult = & wsl.exe -l -v 2>&1
     Write-VerboseMessage "wsl -l -v output: $($verifyResult -join "`n")"
@@ -478,6 +699,91 @@ function Get-WslDistributionData {
   } catch {
     Write-VerboseMessage "Failed to enumerate WSL distributions: $($_.Exception.Message)"
     return @()
+  }
+}
+
+function Set-WslDefaultDistribution {
+  param([string]$DistributionName)
+
+  if ([string]::IsNullOrWhiteSpace($DistributionName)) {
+    return
+  }
+
+  if ($script:OnboardState.DryRun) {
+    Write-DryRunAction "Would run: wsl --set-default $DistributionName"
+    return
+  }
+
+  try {
+    $setDefaultResult = & wsl.exe --set-default $DistributionName 2>&1
+    Write-VerboseMessage "wsl --set-default output: $($setDefaultResult -join ' ')"
+  } catch {
+    throw "Failed to set default WSL distribution to '$DistributionName': $($_.Exception.Message)"
+  }
+}
+
+function Get-UbuntuDistributionSelection {
+  param(
+    [string[]]$ExistingUbuntuDistributions,
+    [string[]]$AllDistributions
+  )
+
+  Write-Info ''
+  Write-Info 'Ubuntu-22.04 distributions already registered:'
+
+  for ($i = 0; $i -lt $ExistingUbuntuDistributions.Count; $i++) {
+    $displayIndex = $i + 1
+    Write-Info "  [$displayIndex] Use '$($ExistingUbuntuDistributions[$i])'"
+  }
+
+  Write-Info '  [N] Install a new Ubuntu-22.04 distribution'
+  Write-Info ''
+
+  while ($true) {
+    $selection = Read-Host 'Enter selection (number or N)'
+
+    if ([string]::IsNullOrWhiteSpace($selection)) {
+      Write-Warn 'Please enter a value.'
+      continue
+    }
+
+    if ($selection -match '^[Nn]$') {
+      while ($true) {
+        $newName = Read-Host 'Enter a name for the new distribution (letters, numbers, hyphen, underscore)'
+
+        if ([string]::IsNullOrWhiteSpace($newName)) {
+          Write-Warn 'Distribution name cannot be empty.'
+          continue
+        }
+
+        if ($newName -notmatch '^[A-Za-z0-9][A-Za-z0-9_-]{0,31}$') {
+          Write-Warn 'Name must start with a letter or number and contain only letters, numbers, hyphen, or underscore (max 32 characters).'
+          continue
+        }
+
+        if ($AllDistributions -contains $newName) {
+          Write-Warn "A distribution named '$newName' already exists. Choose a different name."
+          continue
+        }
+
+        return [pscustomobject]@{
+          Action = 'InstallNew'
+          Name   = $newName
+        }
+      }
+    }
+
+    if ($selection -match '^[0-9]+$') {
+      $index = [int]$selection
+      if ($index -ge 1 -and $index -le $ExistingUbuntuDistributions.Count) {
+        return [pscustomobject]@{
+          Action = 'UseExisting'
+          Name   = $ExistingUbuntuDistributions[$index - 1]
+        }
+      }
+    }
+
+    Write-Warn 'Invalid selection. Please choose a listed option.'
   }
 }
 
@@ -623,7 +929,8 @@ function Invoke-Onboarding {
     'Enable WSL and Virtual Machine Platform features',
     'Update WSL components and set default version to 2',
     'Install Ubuntu-22.04 distribution',
-    'Install Git for Windows'
+    'Install Git for Windows',
+    'Install Visual Studio Code and configure remote development tooling'
   )
 
   # Add manual-only steps to plan if not in CI
@@ -655,6 +962,11 @@ function Invoke-Onboarding {
 
   # Install Git for Windows
   Install-GitForWindows
+
+  # Install and configure Visual Studio Code
+  Ensure-VSCodeInstalled
+  Ensure-VSCodeRemoteExtensionPack
+  Ensure-VSCodeDotfileSettings
 
   # Manual-only block: Docker Desktop and GCM authentication
   if (-not $script:OnboardState.IsCI) {

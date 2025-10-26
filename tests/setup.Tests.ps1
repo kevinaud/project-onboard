@@ -158,6 +158,8 @@ Describe 'setup.ps1' {
       }
 
       Mock Invoke-WslCommand { @() }
+      Mock Get-VSCodeCliCommand { $null }
+      Mock Get-VSCodeSettingsPath { 'C:\Users\Test\AppData\Roaming\Code\User\settings.json' }
 
       $output = Invoke-Onboarding -DryRun
 
@@ -165,10 +167,144 @@ Describe 'setup.ps1' {
       $output | Should -Contain '[INFO] DRY-RUN: Would run: dism.exe /online /enable-feature /featurename:VirtualMachinePlatform /all /norestart'
       $output | Should -Contain '[INFO] DRY-RUN: Would run: wsl --update'
       $output | Should -Contain '[INFO] DRY-RUN: Would run: wsl --set-default-version 2'
-  $output | Should -Contain '[INFO] DRY-RUN: Would install Ubuntu-22.04 via wsl --install and fall back to manual import if needed'
+      $output | Should -Contain '[INFO] DRY-RUN: Would install Ubuntu-22.04 via wsl --install and fall back to manual import if needed'
       $output | Should -Contain '[INFO] DRY-RUN: Would run: winget install --id Git.Git -e --source winget'
+  $output | Should -Contain '[INFO] DRY-RUN: Would run: winget install --id Microsoft.VisualStudioCode -e --source winget'
+  ($output -join "`n") | Should -Match 'DRY-RUN: Would run: .*code.* --install-extension ms-vscode-remote.vscode-remote-extensionpack --force'
+  ($output -join "`n") | Should -Match 'DRY-RUN: Ensure VS Code settings at .* configure kevinaud/dotfiles as the dev container dotfiles repository.'
 
       Assert-MockCalled Get-OptionalFeatureRecord -Times 2 -Exactly
+    }
+  }
+
+  Context 'Ubuntu distribution selection' {
+    BeforeEach {
+      Initialize-OnboardState -DryRunSwitch:$false -NonInteractiveSwitch:$false -NoOptionalSwitch:$false -VerboseSwitch:$false -WorkspacePath $null
+    }
+
+    It 'uses an existing distribution when user selects it' {
+      Mock Get-WslDistributionData { @('Ubuntu-22.04', 'Ubuntu-22.04-dev') }
+      Mock Get-UbuntuDistributionSelection { [pscustomobject]@{ Action = 'UseExisting'; Name = 'Ubuntu-22.04-dev' } }
+      Mock Set-WslDefaultDistribution { param([string]$DistributionName) }
+      Mock Import-UbuntuDistributionFromAppx {}
+
+      Install-UbuntuDistribution
+
+      $state = Get-Variable -Name OnboardState -Scope Script
+      $state.Value.UbuntuDistribution | Should -Be 'Ubuntu-22.04-dev'
+
+      Assert-MockCalled Get-UbuntuDistributionSelection -Times 1 -Exactly
+      Assert-MockCalled Set-WslDefaultDistribution -Times 1 -Exactly -ParameterFilter { $DistributionName -eq 'Ubuntu-22.04-dev' }
+      Assert-MockCalled Import-UbuntuDistributionFromAppx -Times 0 -Exactly
+    }
+
+    It 'auto-selects a distribution in non-interactive mode' {
+      Initialize-OnboardState -DryRunSwitch:$false -NonInteractiveSwitch:$true -NoOptionalSwitch:$false -VerboseSwitch:$false -WorkspacePath $null
+
+      Mock Get-WslDistributionData { @('Ubuntu-22.04', 'Ubuntu-22.04-dev') }
+      Mock Get-UbuntuDistributionSelection {}
+      Mock Set-WslDefaultDistribution { param([string]$DistributionName) }
+
+      Install-UbuntuDistribution
+
+      $state = Get-Variable -Name OnboardState -Scope Script
+      $state.Value.UbuntuDistribution | Should -Be 'Ubuntu-22.04'
+
+      Assert-MockCalled Get-UbuntuDistributionSelection -Times 0 -Exactly
+      Assert-MockCalled Set-WslDefaultDistribution -Times 1 -Exactly -ParameterFilter { $DistributionName -eq 'Ubuntu-22.04' }
+    }
+
+    It 'installs a new distribution when requested' {
+      Mock Get-WslDistributionData { @('Ubuntu-22.04', 'Ubuntu-22.04-dev') }
+      Mock Get-UbuntuDistributionSelection { [pscustomobject]@{ Action = 'InstallNew'; Name = 'Ubuntu-22.04-new' } }
+      Mock Import-UbuntuDistributionFromAppx { param([string]$DistributionName) }
+
+      Install-UbuntuDistribution
+
+      $state = Get-Variable -Name OnboardState -Scope Script
+      $state.Value.UbuntuDistribution | Should -Be 'Ubuntu-22.04-new'
+
+      Assert-MockCalled Import-UbuntuDistributionFromAppx -Times 1 -Exactly -ParameterFilter { $DistributionName -eq 'Ubuntu-22.04-new' }
+    }
+  }
+
+  Context 'Ubuntu distribution integration' {
+    It 'emits dry-run guidance when Ubuntu-22.04 already exists' {
+      $featureStates = @{
+        'Microsoft-Windows-Subsystem-Linux' = 'Enabled'
+        'VirtualMachinePlatform'           = 'Enabled'
+      }
+
+      Mock Get-OptionalFeatureRecord {
+        param([string]$FeatureName)
+
+        [pscustomobject]@{
+          FeatureName = $FeatureName
+          State       = $featureStates[$FeatureName]
+        }
+      }
+
+      Mock Get-WslDistributionData { @('Ubuntu-22.04', 'Ubuntu-22.04-dev') }
+      Mock Set-WslDefaultDistribution { param([string]$DistributionName) }
+
+      Remove-Item Env:\CI -ErrorAction SilentlyContinue
+
+      $output = Invoke-Onboarding -DryRun
+
+  ($output -join "`n") | Should -Match 'Detected existing Ubuntu-22\.04 distributions:'
+  ($output -join "`n") | Should -Match 'DRY-RUN: Would prompt to select an existing Ubuntu-22\.04 distribution or install a new one'
+
+      $state = Get-Variable -Name OnboardState -Scope Script
+      $state.Value.UbuntuDistribution | Should -Be 'Ubuntu-22.04'
+
+      Assert-MockCalled Set-WslDefaultDistribution -Times 0 -Exactly
+    }
+  }
+
+  Context 'VS Code configuration' {
+    BeforeEach {
+      Initialize-OnboardState -DryRunSwitch:$false -NonInteractiveSwitch:$false -NoOptionalSwitch:$false -VerboseSwitch:$false -WorkspacePath $null
+    }
+
+    It 'adds dotfile defaults when settings file is missing' {
+      $settingsPath = Join-Path $TestDrive 'settings.json'
+
+      Ensure-VSCodeDotfileSettings -SettingsPath $settingsPath
+
+      $content = Get-Content -Path $settingsPath -Raw
+      $json = $content | ConvertFrom-Json
+
+      $json.'dotfiles.repository' | Should -Be 'kevinaud/dotfiles'
+      $json.'dotfiles.targetPath' | Should -Be '~/dotfiles'
+      $json.'dotfiles.installCommand' | Should -Be 'install.sh'
+    }
+
+    It 'does not overwrite existing dotfile configuration' {
+      $settingsPath = Join-Path $TestDrive 'settings.json'
+      $initial = @{
+        'dotfiles.repository'     = 'custom/repo'
+        'dotfiles.targetPath'     = '~/custom'
+        'dotfiles.installCommand' = 'custom.sh'
+      } | ConvertTo-Json -Depth 4
+      Set-Content -Path $settingsPath -Value $initial
+
+      Ensure-VSCodeDotfileSettings -SettingsPath $settingsPath
+
+      $content = Get-Content -Path $settingsPath -Raw
+      $json = $content | ConvertFrom-Json
+
+      $json.'dotfiles.repository' | Should -Be 'custom/repo'
+      $json.'dotfiles.targetPath' | Should -Be '~/custom'
+      $json.'dotfiles.installCommand' | Should -Be 'custom.sh'
+    }
+
+    It 'emits dry-run output when onboarding is in dry-run mode' {
+      Initialize-OnboardState -DryRunSwitch:$true -NonInteractiveSwitch:$false -NoOptionalSwitch:$false -VerboseSwitch:$false -WorkspacePath $null
+      $settingsPath = Join-Path $TestDrive 'settings.json'
+
+      $messages = @(Ensure-VSCodeDotfileSettings -SettingsPath $settingsPath)
+
+  $messages | Should -Contain "[INFO] DRY-RUN: Ensure VS Code settings at $settingsPath configure kevinaud/dotfiles as the dev container dotfiles repository."
     }
   }
 
