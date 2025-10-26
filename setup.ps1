@@ -866,15 +866,18 @@ function Invoke-GitCredentialManagerAuth {
     Write-Warn "Git Credential Manager version check returned exit code $gcmVersionExit. Continuing, but authentication may fail."
   }
 
+  $originalPreference = $ErrorActionPreference
+  $ErrorActionPreference = 'Continue'
   try {
     # Configure GCM
     Write-DebugMessage "Executing: $gcmPath configure"
     $configResult = & $gcmPath configure 2>&1
+    $configExitCode = $LASTEXITCODE
     Write-VerboseMessage "GCM configure output: $($configResult -join ' ')"
     Write-DebugMessage "GCM configure full output: $($configResult | Out-String)"
-    Write-DebugMessage "GCM configure exit code: $LASTEXITCODE"
-    if ($LASTEXITCODE -ne 0) {
-      Write-Warn "Git Credential Manager configure step failed with exit code $LASTEXITCODE"
+    Write-DebugMessage "GCM configure exit code: $configExitCode"
+    if ($configExitCode -ne 0) {
+      Write-Warn "Git Credential Manager configure step failed with exit code $configExitCode"
       if ($configResult) {
         Write-Info 'Captured configure output:'
         foreach ($line in $configResult) { Write-Info "  $line" }
@@ -891,11 +894,12 @@ function Invoke-GitCredentialManagerAuth {
     Write-DebugMessage "Executing: echo 'protocol=https\nhost=github.com\n\n' | $gcmPath get"
     $authInput = "protocol=https`nhost=github.com`n`n"
     $authResult = $authInput | & $gcmPath get 2>&1
+    $authExitCode = $LASTEXITCODE
     Write-VerboseMessage "GCM get output: $($authResult -join ' ')"
     Write-DebugMessage "GCM get full output: $($authResult | Out-String)"
-    Write-DebugMessage "GCM get exit code: $LASTEXITCODE"
-    if ($LASTEXITCODE -ne 0) {
-      Write-Warn "Git Credential Manager get step failed with exit code $LASTEXITCODE"
+    Write-DebugMessage "GCM get exit code: $authExitCode"
+    if ($authExitCode -ne 0) {
+      Write-Warn "Git Credential Manager get step failed with exit code $authExitCode"
       if ($authResult) {
         Write-Info 'Captured authentication output:'
         foreach ($line in $authResult) { Write-Info "  $line" }
@@ -916,6 +920,8 @@ function Invoke-GitCredentialManagerAuth {
     Write-Info "  & '$gcmPath' diagnose"
     Write-Info "  & '$gcmPath' configure"
     Write-Info "  echo protocol=https`nhost=github.com`n`n | & '$gcmPath' get"
+  } finally {
+    $ErrorActionPreference = $originalPreference
   }
 
   if (-not $script:OnboardState.NonInteractive) {
