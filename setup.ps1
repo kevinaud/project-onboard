@@ -1240,6 +1240,19 @@ function Invoke-WslHandoff {
   Write-Info '========== Handing off to setup.sh inside WSL =========='
   Write-Info ''
 
+  $windowsRepoRoot = Split-Path -Path $script:ProjectOnboardScriptPath -Parent
+  $setupShPath = Join-Path -Path $windowsRepoRoot -ChildPath 'setup.sh'
+  if (-not (Test-Path -Path $setupShPath)) {
+    Write-Warn "setup.sh not found at expected path '$setupShPath'. Skipping WSL handoff."
+    return
+  }
+  $wslRepoRoot = Convert-WorkspacePathForWsl -Path $windowsRepoRoot
+  if ([string]::IsNullOrWhiteSpace($wslRepoRoot)) {
+    Write-Warn 'Unable to determine WSL path for project-onboard repository. Skipping WSL handoff.'
+    return
+  }
+  Write-DebugMessage "Resolved WSL repository root path: $wslRepoRoot"
+
   $branch = $script:OnboardState.Branch
   if ([string]::IsNullOrWhiteSpace($branch)) {
     $branch = 'main'
@@ -1274,7 +1287,6 @@ function Invoke-WslHandoff {
     ''
   }
 
-  $setupUrl = "https://raw.githubusercontent.com/kevinaud/project-onboard/$branch/setup.sh"
   $envAssignments = New-Object System.Collections.Generic.List[string]
   $envAssignments.Add("PROJECT_ONBOARD_BRANCH=$branch") | Out-Null
   if ($script:OnboardState.Debug) {
@@ -1284,15 +1296,20 @@ function Invoke-WslHandoff {
   if ($envAssignments.Count -gt 0) {
     $envPrefix = ([string]::Join(' ', $envAssignments)) + ' '
   }
-  if ([string]::IsNullOrWhiteSpace($flagString)) {
-    $handoffCommand = "${envPrefix}curl -fsSL $setupUrl | bash"
-  } else {
-    $handoffCommand = "${envPrefix}curl -fsSL $setupUrl | bash -s -- $flagString"
-  }
 
-  Write-Info "Executing: wsl -e bash -lc `"$handoffCommand`""
-  Write-DebugMessage 'WSL handoff command before variable substitution: curl -fsSL <url> | bash -s -- <flags>'
-  Write-DebugMessage "Final command after substitution: wsl -e bash -lc `"$handoffCommand`""
+  $wslRepoArg = Convert-ToBashArgument -Value $wslRepoRoot
+  $setupInvocation = './setup.sh'
+  if (-not [string]::IsNullOrWhiteSpace($flagString)) {
+    $setupInvocation = "$setupInvocation $flagString"
+  }
+  if (-not [string]::IsNullOrWhiteSpace($envPrefix)) {
+    $setupInvocation = "$envPrefix$setupInvocation"
+  }
+  $handoffCommand = "cd $wslRepoArg && $setupInvocation"
+
+  Write-Info "Executing: wsl -e bash -lc \"$handoffCommand\""
+  Write-DebugMessage 'WSL handoff command before variable substitution: cd <repo> && ./setup.sh <flags>'
+  Write-DebugMessage "Final command after substitution: wsl -e bash -lc \"$handoffCommand\""
 
   if ($script:OnboardState.DryRun) {
     Write-DryRunAction "Would execute: wsl -e bash -lc `"$handoffCommand`""
