@@ -20,18 +20,26 @@ PROJECT_ONBOARD_BRANCH=iter-9 bash -c 'curl -fsSL https://raw.githubusercontent.
 
 ### Windows (WSL)
 
-Paste this single command into an elevated PowerShell terminal:
+Paste this into an elevated PowerShell terminal:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -Command "Invoke-RestMethod https://raw.githubusercontent.com/kevinaud/project-onboard/main/setup.ps1 | Invoke-Expression"
+$env:PROJECT_ONBOARD_BRANCH='main'
+irm 'https://raw.githubusercontent.com/kevinaud/project-onboard/main/setup.ps1' | iex
 ```
 
-The Windows script enables WSL, guides you through the first Ubuntu launch, and then automatically hands off to the Linux bootstrap step inside WSL. Use `-Branch <name>` if you need to try a preview branch (for example, `-Branch iter-9`).
-
-To pin the Windows bootstrap to another branch directly from the one-liner, set the environment variable first:
+The Windows script enables WSL, guides you through the first Ubuntu launch, and then automatically hands off to the Linux bootstrap step inside WSL. Change the environment variable before running the script if you want to try a preview branch (for example, `iter-9`):
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$env:PROJECT_ONBOARD_BRANCH='iter-9'; Invoke-RestMethod https://raw.githubusercontent.com/kevinaud/project-onboard/main/setup.ps1 | Invoke-Expression"
+$env:PROJECT_ONBOARD_BRANCH='iter-9'
+irm 'https://raw.githubusercontent.com/kevinaud/project-onboard/main/setup.ps1' | iex
+```
+
+To enable debug mode for detailed command tracing and output capture:
+
+```powershell
+$env:PROJECT_ONBOARD_BRANCH='iter-9'
+$env:PROJECT_ONBOARD_DEBUG='1'
+irm 'https://raw.githubusercontent.com/kevinaud/project-onboard/main/setup.ps1' | iex
 ```
 
 > **Tip**
@@ -49,6 +57,7 @@ Available options:
 - `--non-interactive`: Assume default answers to prompts.
 - `--no-optional`: Skip optional features.
 - `--verbose`: Emit verbose diagnostics.
+- `--debug`: Enable debug mode with full command output capture.
 - `--branch <name>`: Download helper assets from the specified `project-onboard` branch (default: `main`).
 - `--workspace <path>`: Override the default workspace directory (default: `~/projects`).
 - `--help`: Show help message.

@@ -6,6 +6,7 @@ param(
   [switch]$NonInteractive,
   [switch]$NoOptional,
   [switch]$VerboseMode,
+  [switch]$Debug,
   [string]$Workspace,
   [string]$Branch
 )
@@ -24,6 +25,9 @@ if ($PSBoundParameters) {
 }
 if (-not $script:ScriptBoundParameters.ContainsKey('Branch') -and -not [string]::IsNullOrWhiteSpace($env:PROJECT_ONBOARD_BRANCH)) {
   $script:ScriptBoundParameters['Branch'] = $env:PROJECT_ONBOARD_BRANCH
+}
+if (-not $script:ScriptBoundParameters.ContainsKey('Debug') -and ($env:PROJECT_ONBOARD_DEBUG -eq '1' -or $env:PROJECT_ONBOARD_DEBUG -eq 'true')) {
+  $script:ScriptBoundParameters['Debug'] = $true
 }
 
 $script:OnboardState = $null
@@ -93,6 +97,13 @@ function Write-VerboseMessage {
   param([string]$Message)
   if ($script:OnboardState -and $script:OnboardState.Verbose) {
     Write-Output "[VERBOSE] $Message"
+  }
+}
+
+function Write-DebugMessage {
+  param([string]$Message)
+  if ($script:OnboardState -and $script:OnboardState.Debug) {
+    Write-Output "[DEBUG] $Message"
   }
 }
 
@@ -317,6 +328,7 @@ function Initialize-OnboardState {
     [switch]$NonInteractiveSwitch,
     [switch]$NoOptionalSwitch,
     [switch]$VerboseSwitch,
+    [switch]$DebugSwitch,
     [string]$WorkspacePath,
     [string]$BranchName
   )
@@ -344,17 +356,31 @@ function Initialize-OnboardState {
     $BranchName
   }
 
+  $debugValue = if ($DebugSwitch) {
+    $true
+  } elseif ($env:PROJECT_ONBOARD_DEBUG -eq '1' -or $env:PROJECT_ONBOARD_DEBUG -eq 'true') {
+    $true
+  } else {
+    $false
+  }
+
   $script:OnboardState = [ordered]@{
     DryRun         = [bool]$DryRunSwitch
     NonInteractive = [bool]$NonInteractiveSwitch
     NoOptional     = [bool]$NoOptionalSwitch
     Verbose        = [bool]$VerboseSwitch
+    Debug          = $debugValue
     Workspace      = $defaultWorkspace
     IsCI           = $isCI
     UbuntuDistribution = $null
     Branch        = $branchValue
     RequiresReboot = $false
     EnabledWslFeatures = $false
+  }
+
+  if ($script:OnboardState.Debug) {
+    Write-DebugMessage "Debug logging enabled."
+    Write-DebugMessage "All command details and output will be captured."
   }
 
   if ($script:OnboardState.Verbose) {
@@ -444,9 +470,13 @@ function Enable-WslFeature {
   try {
     $result1 = & dism.exe /online /enable-feature /featurename:Microsoft-Windows-Subsystem-Linux /all /norestart
     Write-VerboseMessage "dism.exe WSL output: $($result1 -join ' ')"
+    Write-DebugMessage "Executed: dism.exe /online /enable-feature /featurename:Microsoft-Windows-Subsystem-Linux /all /norestart"
+    Write-DebugMessage "Full output: $($result1 | Out-String)"
 
     $result2 = & dism.exe /online /enable-feature /featurename:VirtualMachinePlatform /all /norestart
     Write-VerboseMessage "dism.exe VirtualMachinePlatform output: $($result2 -join ' ')"
+    Write-DebugMessage "Executed: dism.exe /online /enable-feature /featurename:VirtualMachinePlatform /all /norestart"
+    Write-DebugMessage "Full output: $($result2 | Out-String)"
 
     Write-Info 'WSL and Virtual Machine Platform features enabled successfully.'
   } catch {
@@ -495,9 +525,13 @@ function Update-WslComponent {
   try {
     $updateResult = & wsl.exe --update 2>&1
     Write-VerboseMessage "wsl --update output: $($updateResult -join ' ')"
+    Write-DebugMessage "Executed: wsl.exe --update"
+    Write-DebugMessage "Full output: $($updateResult | Out-String)"
 
     $versionResult = & wsl.exe --set-default-version 2 2>&1
     Write-VerboseMessage "wsl --set-default-version output: $($versionResult -join ' ')"
+    Write-DebugMessage "Executed: wsl.exe --set-default-version 2"
+    Write-DebugMessage "Full output: $($versionResult | Out-String)"
 
     Write-Info 'WSL components updated successfully.'
   } catch {
@@ -743,6 +777,8 @@ function Install-GitForWindows {
   try {
     $wingetResult = & winget install --id Git.Git -e --source winget 2>&1
     Write-VerboseMessage "winget install Git output: $($wingetResult -join ' ')"
+    Write-DebugMessage "Executed: winget install --id Git.Git -e --source winget"
+    Write-DebugMessage "Full output: $($wingetResult | Out-String)"
 
     Write-Info 'Git for Windows installed successfully.'
   } catch {
@@ -761,6 +797,8 @@ function Install-DockerDesktop {
   try {
     $wingetResult = & winget install --id Docker.DockerDesktop -e --source winget 2>&1
     Write-VerboseMessage "winget install Docker Desktop output: $($wingetResult -join ' ')"
+    Write-DebugMessage "Executed: winget install --id Docker.DockerDesktop -e --source winget"
+    Write-DebugMessage "Full output: $($wingetResult | Out-String)"
     Write-Info 'Docker Desktop installed successfully.'
   } catch {
     throw "Failed to install Docker Desktop: $($_.Exception.Message)"
@@ -1042,11 +1080,14 @@ function Configure-WslGitCredentialManager {
 
   foreach ($command in $commands) {
     try {
+      Write-DebugMessage "Executing in WSL: wsl -e bash -lc '$command'"
       $result = wsl -e bash -lc $command 2>&1
       if ($LASTEXITCODE -ne 0) {
         Write-Warn "WSL command failed with exit code $LASTEXITCODE while running '$command'. Output: $($result -join ' ')"
+        Write-DebugMessage "Full output: $($result | Out-String)"
       } else {
         Write-VerboseMessage "WSL git configuration command succeeded: $command"
+        Write-DebugMessage "Full output: $($result | Out-String)"
       }
     } catch {
       Write-Warn "Failed to execute '$command' inside WSL: $($_.Exception.Message)"
@@ -1104,6 +1145,8 @@ function Invoke-WslHandoff {
   }
 
   Write-Info "Executing: wsl -e bash -lc `"$handoffCommand`""
+  Write-DebugMessage "WSL handoff command before variable substitution: curl -fsSL <url> | bash -s -- <flags>"
+  Write-DebugMessage "Final command after substitution: wsl -e bash -lc `"$handoffCommand`""
 
   if ($script:OnboardState.DryRun) {
     Write-DryRunAction "Would execute: wsl -e bash -lc `"$handoffCommand`""
@@ -1114,7 +1157,8 @@ function Invoke-WslHandoff {
   }
 
   try {
-    wsl -e bash -lc $handoffCommand
+    $handoffOutput = wsl -e bash -lc $handoffCommand 2>&1
+    Write-DebugMessage "WSL handoff output: $($handoffOutput | Out-String)"
     if ($LASTEXITCODE -ne 0) {
       Write-Warn "setup.sh exited with code $LASTEXITCODE"
     }
@@ -1147,11 +1191,12 @@ function Invoke-Onboarding {
     [switch]$NonInteractive,
     [switch]$NoOptional,
     [switch]$VerboseMode,
+    [switch]$Debug,
     [string]$Workspace,
     [string]$Branch
   )
 
-  Initialize-OnboardState -DryRunSwitch:$DryRun -NonInteractiveSwitch:$NonInteractive -NoOptionalSwitch:$NoOptional -VerboseSwitch:$VerboseMode -WorkspacePath $Workspace -BranchName $Branch
+  Initialize-OnboardState -DryRunSwitch:$DryRun -NonInteractiveSwitch:$NonInteractive -NoOptionalSwitch:$NoOptional -VerboseSwitch:$VerboseMode -DebugSwitch:$Debug -WorkspacePath $Workspace -BranchName $Branch
   $env:PROJECT_ONBOARD_BRANCH = $script:OnboardState.Branch
 
   $plan = @(

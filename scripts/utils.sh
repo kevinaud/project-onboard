@@ -39,6 +39,7 @@ fi
 : "${ONBOARD_NON_INTERACTIVE:=0}"
 : "${ONBOARD_DRY_RUN:=0}"
 : "${ONBOARD_NO_OPTIONAL:=0}"
+: "${ONBOARD_DEBUG:=0}"
 : "${ONBOARD_BRANCH:=main}"
 : "${ONBOARD_WORKSPACE_DIR:=${HOME}/projects}"
 
@@ -64,7 +65,7 @@ if [[ "${ONBOARD_WORKSPACE_DIR}" =~ ^[A-Za-z]:[\\/].* ]]; then
   fi
 fi
 
-export ONBOARD_VERBOSE ONBOARD_NON_INTERACTIVE ONBOARD_DRY_RUN ONBOARD_NO_OPTIONAL ONBOARD_BRANCH ONBOARD_WORKSPACE_DIR
+export ONBOARD_VERBOSE ONBOARD_NON_INTERACTIVE ONBOARD_DRY_RUN ONBOARD_NO_OPTIONAL ONBOARD_DEBUG ONBOARD_BRANCH ONBOARD_WORKSPACE_DIR
 export PROJECT_ONBOARD_BRANCH="${ONBOARD_BRANCH}"
 
 # Timestamp helper shared by backup path generator and logging.
@@ -87,6 +88,12 @@ log_error() {
 log_verbose() {
   if [ "${ONBOARD_VERBOSE}" = "1" ]; then
     printf '[VERBOSE] %s\n' "$*"
+  fi
+}
+
+log_debug() {
+  if [ "${ONBOARD_DEBUG}" = "1" ]; then
+    printf '[DEBUG] %s\n' "$*"
   fi
 }
 
@@ -210,5 +217,23 @@ run_cmd() {
 
   log_info "$description"
   log_verbose "Executing: $*"
-  "$@"
+  log_debug "Command before execution: $*"
+  
+  if [ "${ONBOARD_DEBUG}" = "1" ]; then
+    local output
+    output=$("$@" 2>&1)
+    local exit_code=$?
+    log_debug "Exit code: ${exit_code}"
+    log_debug "Full output: ${output}"
+    
+    if [ "${exit_code}" -ne 0 ]; then
+      printf '%s\n' "${output}" >&2
+      return "${exit_code}"
+    else
+      printf '%s\n' "${output}"
+      return 0
+    fi
+  else
+    "$@"
+  fi
 }

@@ -20,6 +20,7 @@ Options:
   --non-interactive   Assume default answers to prompts
   --no-optional       Skip optional tasks even if prompted later
   --verbose           Enable verbose logging
+  --debug             Enable debug logging with full command output
   --branch <name>     Use a specific project-onboard branch when downloading assets (default: main)
   --workspace <path>  Override default workspace directory (default: ~/projects)
   --help              Show this help message
@@ -42,6 +43,9 @@ parse_flags() {
         ;;
       --verbose)
         ONBOARD_VERBOSE=1
+        ;;
+      --debug)
+        ONBOARD_DEBUG=1
         ;;
       --branch)
         if [ "$#" -lt 2 ]; then
@@ -84,7 +88,7 @@ parse_flags() {
     log_warn "Ignoring positional arguments: ${positional[*]}"
   fi
 
-  export ONBOARD_VERBOSE ONBOARD_NON_INTERACTIVE ONBOARD_DRY_RUN ONBOARD_NO_OPTIONAL ONBOARD_WORKSPACE_DIR
+  export ONBOARD_VERBOSE ONBOARD_NON_INTERACTIVE ONBOARD_DRY_RUN ONBOARD_NO_OPTIONAL ONBOARD_DEBUG ONBOARD_WORKSPACE_DIR
 }
 
 report_environment() {
@@ -108,6 +112,10 @@ report_environment() {
 
   if [ "${ONBOARD_VERBOSE}" = "1" ]; then
     log_verbose "Environment JSON: $(detect_environment)"
+  fi
+  
+  if [ "${ONBOARD_DEBUG}" = "1" ]; then
+    log_debug "Debug mode enabled. All command output will be captured."
   fi
 }
 
