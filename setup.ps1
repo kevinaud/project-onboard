@@ -173,7 +173,8 @@ function Convert-ToBashArgument {
     return "''"
   }
 
-  $escaped = $Value -replace "'", "'\"'\"'"
+  $replacement = "'""'""'"
+  $escaped = $Value -replace "'", $replacement
   return "'$escaped'"
 }
 
@@ -851,18 +852,33 @@ function Invoke-GitCredentialManagerAuth {
 
   try {
     # Configure GCM
+    Write-DebugMessage "Executing: $gcmPath configure"
     $configResult = & $gcmPath configure 2>&1
     Write-VerboseMessage "GCM configure output: $($configResult -join ' ')"
+    Write-DebugMessage "GCM configure full output: $($configResult | Out-String)"
+    Write-DebugMessage "GCM configure exit code: $LASTEXITCODE"
+    if ($LASTEXITCODE -ne 0) {
+      Write-Warn "Git Credential Manager configure step failed with exit code $LASTEXITCODE"
+      return
+    }
 
     # Trigger authentication (this will open browser)
     Write-Info 'Triggering GitHub authentication...'
+    Write-DebugMessage "Executing: echo 'protocol=https\nhost=github.com\n\n' | $gcmPath get"
     $authInput = "protocol=https`nhost=github.com`n`n"
     $authResult = $authInput | & $gcmPath get 2>&1
     Write-VerboseMessage "GCM get output: $($authResult -join ' ')"
+    Write-DebugMessage "GCM get full output: $($authResult | Out-String)"
+    Write-DebugMessage "GCM get exit code: $LASTEXITCODE"
+    if ($LASTEXITCODE -ne 0) {
+      Write-Warn "Git Credential Manager get step failed with exit code $LASTEXITCODE"
+      return
+    }
 
     Write-Info 'Git Credential Manager authentication initiated.'
   } catch {
     Write-Warn "GCM authentication encountered an issue: $($_.Exception.Message)"
+    Write-DebugMessage "Exception details: $($_.Exception | Out-String)"
     Write-Info 'You may need to authenticate manually later.'
   }
 
@@ -1117,6 +1133,9 @@ function Invoke-WslHandoff {
   if ($script:OnboardState.Verbose) {
     $flagSegments.Add('--verbose') | Out-Null
   }
+  if ($script:OnboardState.Debug) {
+    $flagSegments.Add('--debug') | Out-Null
+  }
   if ($script:OnboardState.NoOptional) {
     $flagSegments.Add('--no-optional') | Out-Null
   }
@@ -1137,7 +1156,15 @@ function Invoke-WslHandoff {
   }
 
   $setupUrl = "https://raw.githubusercontent.com/kevinaud/project-onboard/$branch/setup.sh"
-  $envPrefix = "PROJECT_ONBOARD_BRANCH=$branch "
+  $envAssignments = New-Object System.Collections.Generic.List[string]
+  $envAssignments.Add("PROJECT_ONBOARD_BRANCH=$branch") | Out-Null
+  if ($script:OnboardState.Debug) {
+    $envAssignments.Add('PROJECT_ONBOARD_DEBUG=1') | Out-Null
+  }
+  $envPrefix = ''
+  if ($envAssignments.Count -gt 0) {
+    $envPrefix = ([string]::Join(' ', $envAssignments)) + ' '
+  }
   if ([string]::IsNullOrWhiteSpace($flagString)) {
     $handoffCommand = "${envPrefix}curl -fsSL $setupUrl | bash"
   } else {
@@ -1145,7 +1172,7 @@ function Invoke-WslHandoff {
   }
 
   Write-Info "Executing: wsl -e bash -lc `"$handoffCommand`""
-  Write-DebugMessage "WSL handoff command before variable substitution: curl -fsSL <url> | bash -s -- <flags>"
+  Write-DebugMessage 'WSL handoff command before variable substitution: curl -fsSL <url> | bash -s -- <flags>'
   Write-DebugMessage "Final command after substitution: wsl -e bash -lc `"$handoffCommand`""
 
   if ($script:OnboardState.DryRun) {
@@ -1198,6 +1225,11 @@ function Invoke-Onboarding {
 
   Initialize-OnboardState -DryRunSwitch:$DryRun -NonInteractiveSwitch:$NonInteractive -NoOptionalSwitch:$NoOptional -VerboseSwitch:$VerboseMode -DebugSwitch:$Debug -WorkspacePath $Workspace -BranchName $Branch
   $env:PROJECT_ONBOARD_BRANCH = $script:OnboardState.Branch
+  if ($script:OnboardState.Debug) {
+    $env:PROJECT_ONBOARD_DEBUG = '1'
+  } else {
+    Remove-Item Env:PROJECT_ONBOARD_DEBUG -ErrorAction SilentlyContinue
+  }
 
   $plan = @(
     'Check required Windows optional features for WSL',
@@ -1223,6 +1255,10 @@ function Invoke-Onboarding {
 
   Show-ExecutionPlan -Steps $plan
   Write-Info "Using project-onboard branch '$($script:OnboardState.Branch)'."
+
+  if ($script:OnboardState.Debug) {
+    Write-DebugMessage "Debug mode active. Full command output will be captured."
+  }
 
   # Query feature status before making changes
   Write-OptionalFeatureStatus

@@ -34,6 +34,10 @@ if [ -z "${ONBOARD_BRANCH:-}" ] && [ -n "${PROJECT_ONBOARD_BRANCH:-}" ]; then
   ONBOARD_BRANCH="${PROJECT_ONBOARD_BRANCH}"
 fi
 
+if [ -z "${ONBOARD_DEBUG:-}" ] && [ -n "${PROJECT_ONBOARD_DEBUG:-}" ]; then
+  ONBOARD_DEBUG="${PROJECT_ONBOARD_DEBUG}"
+fi
+
 # Default flag values; downstream scripts may override via env or CLI flags.
 : "${ONBOARD_VERBOSE:=0}"
 : "${ONBOARD_NON_INTERACTIVE:=0}"
@@ -53,6 +57,15 @@ case "${ONBOARD_DRY_RUN}" in
     ;;
 esac
 
+case "${ONBOARD_DEBUG}" in
+  1|true|TRUE|True|yes|YES|Yes)
+    ONBOARD_DEBUG=1
+    ;;
+  * )
+    ONBOARD_DEBUG=0
+    ;;
+esac
+
 if [[ "${ONBOARD_WORKSPACE_DIR}" =~ ^[A-Za-z]:[\\/].* ]]; then
   if command -v wslpath >/dev/null 2>&1; then
     if converted_workspace=$(wslpath -a "${ONBOARD_WORKSPACE_DIR}" 2>/dev/null); then
@@ -67,6 +80,7 @@ fi
 
 export ONBOARD_VERBOSE ONBOARD_NON_INTERACTIVE ONBOARD_DRY_RUN ONBOARD_NO_OPTIONAL ONBOARD_DEBUG ONBOARD_BRANCH ONBOARD_WORKSPACE_DIR
 export PROJECT_ONBOARD_BRANCH="${ONBOARD_BRANCH}"
+export PROJECT_ONBOARD_DEBUG="${ONBOARD_DEBUG}"
 
 # Timestamp helper shared by backup path generator and logging.
 _now_timestamp() {
