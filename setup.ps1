@@ -889,6 +889,12 @@ function Invoke-GitCredentialManagerAuth {
       return
     }
 
+    $credentialExists = Test-GcmCredentialPresent -GcmPath $gcmPath
+    if ($credentialExists) {
+      Write-Info 'Existing GitHub credential detected. Skipping interactive login.'
+      return
+    }
+
     # Trigger authentication (this will open browser)
     Write-Info 'Triggering GitHub authentication...'
     Write-DebugMessage "Executing: echo 'protocol=https\nhost=github.com\n\n' | $gcmPath get"
@@ -1151,6 +1157,48 @@ function Configure-WslGitCredentialManager {
       Write-Warn "Failed to execute '$command' inside WSL: $($_.Exception.Message)"
     }
   }
+}
+
+function Test-GcmCredentialPresent {
+  param([string]$GcmPath)
+
+  $probeInput = "protocol=https`nhost=github.com`n`n"
+  $originalInteractive = $null
+  $exitCode = -1
+  $result = @()
+
+  if (Test-Path Env:GCM_INTERACTIVE) {
+    $originalInteractive = $env:GCM_INTERACTIVE
+  }
+
+  try {
+    $env:GCM_INTERACTIVE = 'never'
+    $result = $probeInput | & $GcmPath get 2>&1
+    $exitCode = $LASTEXITCODE
+  } catch {
+    Write-DebugMessage "Credential probe threw: $($_.Exception.Message)"
+    $result = @()
+    $exitCode = -1
+  } finally {
+    if ($null -ne $originalInteractive) {
+      $env:GCM_INTERACTIVE = $originalInteractive
+    } else {
+      Remove-Item Env:GCM_INTERACTIVE -ErrorAction SilentlyContinue
+    }
+  }
+
+  Write-DebugMessage "Credential probe exit code: $exitCode"
+  if ($exitCode -ne 0) {
+    return $false
+  }
+
+  $resultString = ($result -join "`n")
+  Write-DebugMessage "Credential probe output: $resultString"
+  if ($resultString -match 'password=') {
+    return $true
+  }
+
+  return $false
 }
 
 function Invoke-WslHandoff {
