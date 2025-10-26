@@ -867,7 +867,7 @@ function Invoke-GitCredentialManagerAuth {
   }
 
   $originalPreference = $ErrorActionPreference
-  $ErrorActionPreference = 'Continue'
+  $ErrorActionPreference = 'SilentlyContinue'
   try {
     # Configure GCM
     Write-DebugMessage "Executing: $gcmPath configure"
@@ -895,10 +895,16 @@ function Invoke-GitCredentialManagerAuth {
       return
     }
 
+    Write-DebugMessage 'No cached GitHub credential detected; initiating interactive authentication.'
+
     # Trigger authentication (this will open browser)
     Write-Info 'Triggering GitHub authentication...'
-    Write-DebugMessage "Executing: echo 'protocol=https\nhost=github.com\n\n' | $gcmPath get"
-    $authInput = "protocol=https`nhost=github.com`n`n"
+    Write-DebugMessage 'Sending Git credential query payload to Git Credential Manager via stdin.'
+    $authInput = @"
+protocol=https
+host=github.com
+
+"@
     $authResult = $authInput | & $gcmPath get 2>&1
     $authExitCode = $LASTEXITCODE
     Write-VerboseMessage "GCM get output: $($authResult -join ' ')"
@@ -1162,7 +1168,11 @@ function Configure-WslGitCredentialManager {
 function Test-GcmCredentialPresent {
   param([string]$GcmPath)
 
-  $probeInput = "protocol=https`nhost=github.com`n`n"
+  $probeInput = @"
+protocol=https
+host=github.com
+
+"@
   $originalInteractive = $null
   $exitCode = -1
   $result = @()
@@ -1188,14 +1198,33 @@ function Test-GcmCredentialPresent {
   }
 
   Write-DebugMessage "Credential probe exit code: $exitCode"
-  if ($exitCode -ne 0) {
+  if ($exitCode -eq 0) {
+    $resultString = ($result -join "`n").Trim()
+    Write-DebugMessage "Credential probe output: $resultString"
+    if ($resultString -match 'password=' -or $resultString -match 'secret=') {
+      Write-DebugMessage 'Credential probe located an existing secret in GCM.'
+      return $true
+    }
+  } else {
+    Write-DebugMessage 'Credential probe did not exit cleanly; assuming credential absence.'
+  }
+
+  $cmdKeyCommand = Get-Command -Name cmdkey -ErrorAction SilentlyContinue
+  if ($null -eq $cmdKeyCommand) {
+    Write-DebugMessage 'cmdkey.exe not found; skipping Windows Credential Manager probe.'
     return $false
   }
 
-  $resultString = ($result -join "`n")
-  Write-DebugMessage "Credential probe output: $resultString"
-  if ($resultString -match 'password=') {
-    return $true
+  try {
+    $cmdkeyResult = & cmdkey.exe /list 2>&1
+    $cmdkeyOutput = ($cmdkeyResult -join "`n")
+    Write-DebugMessage "cmdkey /list output: $cmdkeyOutput"
+    if ($cmdkeyOutput -match '(?i)git:https://github\.com') {
+      Write-DebugMessage 'Windows Credential Manager contains git:https://github.com entry.'
+      return $true
+    }
+  } catch {
+    Write-DebugMessage "cmdkey probe threw: $($_.Exception.Message)"
   }
 
   return $false
