@@ -12,8 +12,8 @@ setup() {
   [ -z "${output}" ]
 }
 
-@test "install_prereqs_macos installs brew when missing" {
-  run env ONBOARD_OS=macos ONBOARD_ARCH=arm64 PATH="/usr/bin:/bin" "${TEST_ROOT}/scripts/install_prereqs_macos.sh"
+@test "install_prereqs_macos installs brew when missing (dry-run preview)" {
+  run env ONBOARD_OS=macos ONBOARD_ARCH=arm64 ONBOARD_DRY_RUN=1 PATH="/usr/bin:/bin" "${TEST_ROOT}/scripts/install_prereqs_macos.sh"
   [ "$status" -eq 0 ]
   [[ "${output}" == *'[INFO] Homebrew not found; installing via official script.'* ]]
   [[ "${output}" == *'[INFO] DRY-RUN: Install Homebrew: /bin/bash -c $(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)'* ]]
@@ -32,7 +32,7 @@ printf 'stub brew\n'
 BREW
   chmod +x "${temp_dir}/brew"
 
-  run env ONBOARD_OS=macos ONBOARD_ARCH=x86_64 PATH="${temp_dir}:/usr/bin:/bin" "${TEST_ROOT}/scripts/install_prereqs_macos.sh"
+  run env ONBOARD_OS=macos ONBOARD_ARCH=x86_64 ONBOARD_DRY_RUN=1 PATH="${temp_dir}:/usr/bin:/bin" "${TEST_ROOT}/scripts/install_prereqs_macos.sh"
   [ "$status" -eq 0 ]
   [[ "${output}" == *"[INFO] Homebrew detected at ${temp_dir}/brew"* ]]
   [[ "${output}" == *"[INFO] DRY-RUN: Install macOS prerequisites via Homebrew (git, gh, chezmoi): ${temp_dir}/brew install git gh chezmoi"* ]]

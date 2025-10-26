@@ -12,8 +12,8 @@ setup() {
   [ -z "${output}" ]
 }
 
-@test "install_prereqs_wsl runs apt-get update and install on WSL" {
-  run env ONBOARD_OS=wsl ONBOARD_ARCH=x86_64 ONBOARD_IS_WSL=1 PATH="/usr/local/bin:/usr/bin:/bin" "${TEST_ROOT}/scripts/install_prereqs_wsl.sh"
+@test "install_prereqs_wsl prints planned apt-get operations in dry-run mode" {
+  run env ONBOARD_OS=wsl ONBOARD_ARCH=x86_64 ONBOARD_IS_WSL=1 ONBOARD_DRY_RUN=1 PATH="/usr/local/bin:/usr/bin:/bin" "${TEST_ROOT}/scripts/install_prereqs_wsl.sh"
   [ "$status" -eq 0 ]
   [[ "${output}" == *'[INFO] DRY-RUN: Update package cache: sudo apt-get update'* ]]
   [[ "${output}" == *'[INFO] DRY-RUN: Install WSL prerequisites via apt (git, gh, curl, chezmoi, python3): sudo apt-get install -y git gh curl chezmoi python3'* ]]

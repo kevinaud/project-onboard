@@ -111,7 +111,7 @@ main() {
     'Apply minimal project-required .gitconfig via chezmoi templates with safe backup'
     'Authenticate with GitHub (macOS: gh auth login; WSL: uses Windows GCM)'
     'Clone or update the private project repository'
-    'Keep dry-run guardrails in place (no host changes will be made)'
+    'Verify Docker integration inside WSL when applicable'
   )
 
   announce_plan "${plan[@]}"
@@ -134,7 +134,11 @@ main() {
     log_verbose 'Platform-specific onboarding steps skipped on this platform.'
   fi
 
-  log_info 'Dry-run enforced; no host changes were attempted.'
+  if [ "${ONBOARD_DRY_RUN}" = "1" ]; then
+    log_info 'Dry-run mode: no host changes were made.'
+  else
+    log_info 'Host onboarding complete.'
+  fi
 }
 
 main "$@"

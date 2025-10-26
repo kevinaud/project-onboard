@@ -32,7 +32,7 @@ Describe 'setup.ps1' {
       $output | Should -Contain "[INFO] Optional feature 'Windows Subsystem for Linux' is already enabled."
       $output | Should -Contain "[INFO] Optional feature 'Virtual Machine Platform' is already enabled."
       $output | Should -Contain "[INFO] Detected WSL distributions: Ubuntu"
-      $output | Should -Contain '[INFO] Dry-run mode: no system changes were made.'
+  $output | Should -Contain '[INFO] Dry-run mode: no host changes were made.'
 
   Assert-MockCalled Get-OptionalFeatureRecord -Times 2 -Exactly
   Assert-MockCalled Invoke-WslCommand -Times 2 -Exactly

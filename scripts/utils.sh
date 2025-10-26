@@ -10,15 +10,19 @@ IFS=$' \t\n'
 # Default flag values; downstream scripts may override via env or CLI flags.
 : "${ONBOARD_VERBOSE:=0}"
 : "${ONBOARD_NON_INTERACTIVE:=0}"
-: "${ONBOARD_DRY_RUN:=1}"
+: "${ONBOARD_DRY_RUN:=0}"
 : "${ONBOARD_NO_OPTIONAL:=0}"
 : "${ONBOARD_WORKSPACE_DIR:=${HOME}/projects}"
 
-# Guard: iteration roadmap enforces dry-run only behaviour for now.
-# However, allow tests to override by checking if it was explicitly set to 0
-if [ "${ONBOARD_DRY_RUN}" != "0" ]; then
-  ONBOARD_DRY_RUN=1
-fi
+# Normalise ONBOARD_DRY_RUN to a strict 0/1 so downstream checks stay simple.
+case "${ONBOARD_DRY_RUN}" in
+  1|true|TRUE|True|yes|YES|Yes)
+    ONBOARD_DRY_RUN=1
+    ;;
+  *)
+    ONBOARD_DRY_RUN=0
+    ;;
+esac
 export ONBOARD_VERBOSE ONBOARD_NON_INTERACTIVE ONBOARD_DRY_RUN ONBOARD_NO_OPTIONAL ONBOARD_WORKSPACE_DIR
 
 # Timestamp helper shared by backup path generator and logging.

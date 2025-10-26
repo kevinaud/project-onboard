@@ -10,6 +10,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/utils.sh"
 
 verify_docker() {
+    if [ "${ONBOARD_DRY_RUN}" = "1" ]; then
+        log_info "DRY-RUN: Verify Docker Desktop integration with WSL"
+        return 0
+    fi
+
     log_info "Verifying Docker Desktop integration with WSL..."
 
     # Check if docker command is available

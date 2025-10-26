@@ -12,7 +12,68 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+$script:IsDotSourced = $MyInvocation.InvocationName -eq '.'
+$script:ProjectOnboardScriptPath = $PSCommandPath
+
+$script:ScriptBoundParameters = @{}
+if ($PSBoundParameters) {
+  foreach ($entry in $PSBoundParameters.GetEnumerator()) {
+    $script:ScriptBoundParameters[$entry.Key] = $entry.Value
+  }
+}
+
 $script:OnboardState = $null
+
+function Ensure-ExecutionPolicyRelaxed {
+  if ($env:PROJECT_ONBOARD_EXECUTION_POLICY_ESCALATED -eq '1') {
+    Remove-Item Env:PROJECT_ONBOARD_EXECUTION_POLICY_ESCALATED -ErrorAction SilentlyContinue
+    return
+  }
+
+  if ($script:IsDotSourced) {
+    return
+  }
+
+  $scriptPath = $script:ProjectOnboardScriptPath
+  if (-not $scriptPath) {
+    return
+  }
+
+  try {
+    $effectivePolicy = Get-ExecutionPolicy -Scope Process
+  } catch {
+    return
+  }
+
+  if ($effectivePolicy -in @('Bypass', 'RemoteSigned')) {
+    return
+  }
+
+  Set-Item -Path Env:PROJECT_ONBOARD_EXECUTION_POLICY_ESCALATED -Value '1'
+
+  $argumentList = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $scriptPath)
+
+  foreach ($entry in $script:ScriptBoundParameters.GetEnumerator()) {
+    $name = "-{0}" -f $entry.Key
+    $value = $entry.Value
+
+    if ($value -is [System.Management.Automation.SwitchParameter]) {
+      if ($value.IsPresent) {
+        $argumentList += $name
+      }
+      continue
+    }
+
+    if ($null -ne $value) {
+      $argumentList += $name
+      $argumentList += [string]$value
+    }
+  }
+
+  & powershell.exe @argumentList
+  $exitCode = $LASTEXITCODE
+  exit $exitCode
+}
 
 function Write-Info {
   param([string]$Message)
@@ -1008,7 +1069,7 @@ function Invoke-Onboarding {
   }
 
   if ($script:OnboardState.DryRun) {
-    Write-Info 'Dry-run mode: no system changes were made.'
+    Write-Info 'Dry-run mode: no host changes were made.'
   } else {
     if ($script:OnboardState.IsCI) {
       Write-Info 'Windows setup complete (CI mode). WSL features enabled, Ubuntu installed, Git for Windows installed.'
@@ -1018,6 +1079,7 @@ function Invoke-Onboarding {
   }
 }
 
-if ($MyInvocation.InvocationName -ne '.') {
+if (-not $script:IsDotSourced) {
+  Ensure-ExecutionPolicyRelaxed
   Invoke-Onboarding @PSBoundParameters
 }

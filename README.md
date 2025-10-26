@@ -12,17 +12,13 @@ curl -fsSL https://raw.githubusercontent.com/kevinaud/project-onboard/main/setup
 
 ### Windows (WSL)
 
-From PowerShell (full wrapper coming in later iterations):
+Paste this single command into an elevated PowerShell terminal:
 
 ```powershell
-.\setup.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -Command "Invoke-RestMethod https://raw.githubusercontent.com/kevinaud/project-onboard/main/setup.ps1 | Invoke-Expression"
 ```
 
-Then inside WSL/Ubuntu:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/kevinaud/project-onboard/main/setup.sh | bash
-```
+The Windows script enables WSL, guides you through the first Ubuntu launch, and then automatically hands off to the Linux bootstrap step inside WSL.
 
 ## Usage
 
@@ -32,19 +28,18 @@ curl -fsSL https://raw.githubusercontent.com/kevinaud/project-onboard/main/setup
 
 Available options:
 
-- `--dry-run` (default): Print planned actions only, no host changes.
+- `--dry-run`: Print planned actions only, no host changes.
 - `--non-interactive`: Assume default answers to prompts.
 - `--no-optional`: Skip optional features.
 - `--verbose`: Emit verbose diagnostics.
 - `--workspace <path>`: Override the default workspace directory (default: `~/projects`).
 - `--help`: Show help message.
 
-> **Note**
-> Dry-run mode is currently enforced during early iterations. No host changes are performed yet.
+Use `--dry-run` if you want to preview actions before executing them.
 
 ## What It Does
 
-Iteration 3 completes the macOS onboarding flow:
+The onboarding flow performs the following high-level tasks:
 
 1. **Platform Detection**: Identifies macOS (Intel/Apple Silicon) or WSL (Ubuntu).
 2. **Prerequisites**: Installs Homebrew, Git, GitHub CLI, and chezmoi as needed.
@@ -52,8 +47,9 @@ Iteration 3 completes the macOS onboarding flow:
 4. **Git Config**: Applies minimal project-required `.gitconfig` with safe backup.
 5. **GitHub Auth**: 
    - **macOS**: Runs `gh auth login --web` (browser-based).
-   - **WSL**: Skips (uses Windows Git Credential Manager configured in later iterations).
+   - **WSL**: Uses the Windows Git Credential Manager flow triggered from PowerShell.
 6. **Clone Repository**: Clones the private `mental-health-app-frontend` repository to `~/projects` (or specified workspace).
+7. **Docker Integration (WSL)**: Confirms Docker Desktop integration with your Ubuntu distribution.
 
 ## Next Steps
 
