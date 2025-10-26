@@ -16,10 +16,11 @@ print_usage() {
 Usage: setup.sh [options]
 
 Options:
-  --dry-run           Print planned actions only (default; enforced during early iterations)
+  --dry-run           Print planned actions only, no host changes
   --non-interactive   Assume default answers to prompts
   --no-optional       Skip optional tasks even if prompted later
   --verbose           Enable verbose logging
+  --branch <name>     Use a specific project-onboard branch when downloading assets (default: main)
   --workspace <path>  Override default workspace directory (default: ~/projects)
   --help              Show this help message
 USAGE
@@ -41,6 +42,14 @@ parse_flags() {
         ;;
       --verbose)
         ONBOARD_VERBOSE=1
+        ;;
+      --branch)
+        if [ "$#" -lt 2 ]; then
+          log_error '--branch requires a name argument'
+          exit 1
+        fi
+        shift
+        ONBOARD_BRANCH=$1
         ;;
       --workspace)
         if [ "$#" -lt 2 ]; then
@@ -89,6 +98,7 @@ report_environment() {
   log_info "Architecture: ${ONBOARD_ARCH}"
   log_info "Shell: ${ONBOARD_SHELL_NAME}"
   log_info "Running under WSL: ${wsl_note}"
+  log_info "Project Onboard branch: ${ONBOARD_BRANCH}"
 
   if [ -n "${ONBOARD_BREW_PREFIX}" ]; then
     log_info "Homebrew prefix suggestion: ${ONBOARD_BREW_PREFIX}"

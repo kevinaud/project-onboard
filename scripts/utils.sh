@@ -7,11 +7,17 @@ set -euo pipefail
 # Keep IFS narrow to avoid surprising word-splitting.
 IFS=$' \t\n'
 
+# Allow host wrapper to pass branch override via environment.
+if [ -z "${ONBOARD_BRANCH:-}" ] && [ -n "${PROJECT_ONBOARD_BRANCH:-}" ]; then
+  ONBOARD_BRANCH="${PROJECT_ONBOARD_BRANCH}"
+fi
+
 # Default flag values; downstream scripts may override via env or CLI flags.
 : "${ONBOARD_VERBOSE:=0}"
 : "${ONBOARD_NON_INTERACTIVE:=0}"
 : "${ONBOARD_DRY_RUN:=0}"
 : "${ONBOARD_NO_OPTIONAL:=0}"
+: "${ONBOARD_BRANCH:=main}"
 : "${ONBOARD_WORKSPACE_DIR:=${HOME}/projects}"
 
 # Normalise ONBOARD_DRY_RUN to a strict 0/1 so downstream checks stay simple.
@@ -23,7 +29,9 @@ case "${ONBOARD_DRY_RUN}" in
     ONBOARD_DRY_RUN=0
     ;;
 esac
-export ONBOARD_VERBOSE ONBOARD_NON_INTERACTIVE ONBOARD_DRY_RUN ONBOARD_NO_OPTIONAL ONBOARD_WORKSPACE_DIR
+
+export ONBOARD_VERBOSE ONBOARD_NON_INTERACTIVE ONBOARD_DRY_RUN ONBOARD_NO_OPTIONAL ONBOARD_BRANCH ONBOARD_WORKSPACE_DIR
+export PROJECT_ONBOARD_BRANCH="${ONBOARD_BRANCH}"
 
 # Timestamp helper shared by backup path generator and logging.
 _now_timestamp() {

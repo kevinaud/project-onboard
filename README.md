@@ -10,6 +10,8 @@ Cross-platform onboarding tooling for the mental-health-app-frontend project. Th
 curl -fsSL https://raw.githubusercontent.com/kevinaud/project-onboard/main/setup.sh | bash
 ```
 
+To test another branch, either append `--branch <name>` to the command or set `PROJECT_ONBOARD_BRANCH=<name>` before piping the script.
+
 ### Windows (WSL)
 
 Paste this single command into an elevated PowerShell terminal:
@@ -18,7 +20,13 @@ Paste this single command into an elevated PowerShell terminal:
 powershell -NoProfile -ExecutionPolicy Bypass -Command "Invoke-RestMethod https://raw.githubusercontent.com/kevinaud/project-onboard/main/setup.ps1 | Invoke-Expression"
 ```
 
-The Windows script enables WSL, guides you through the first Ubuntu launch, and then automatically hands off to the Linux bootstrap step inside WSL.
+The Windows script enables WSL, guides you through the first Ubuntu launch, and then automatically hands off to the Linux bootstrap step inside WSL. Use `-Branch <name>` if you need to try a preview branch (for example, `-Branch iter-9`).
+
+To pin the Windows bootstrap to another branch directly from the one-liner, set the environment variable first:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$env:PROJECT_ONBOARD_BRANCH='iter-9'; Invoke-RestMethod https://raw.githubusercontent.com/kevinaud/project-onboard/main/setup.ps1 | Invoke-Expression"
+```
 
 ## Usage
 
@@ -32,10 +40,13 @@ Available options:
 - `--non-interactive`: Assume default answers to prompts.
 - `--no-optional`: Skip optional features.
 - `--verbose`: Emit verbose diagnostics.
+- `--branch <name>`: Download helper assets from the specified `project-onboard` branch (default: `main`).
 - `--workspace <path>`: Override the default workspace directory (default: `~/projects`).
 - `--help`: Show help message.
 
 Use `--dry-run` if you want to preview actions before executing them.
+
+You can also set the environment variable `PROJECT_ONBOARD_BRANCH=<name>` to pin every step (PowerShell and WSL/macOS) to a specific branch without passing the flag on every command.
 
 ## What It Does
 

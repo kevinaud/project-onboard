@@ -5,6 +5,16 @@ Describe 'setup.ps1' {
   BeforeAll {
     $repoRoot = Resolve-Path (Join-Path -Path $PSScriptRoot -ChildPath '..')
     . (Join-Path -Path $repoRoot -ChildPath 'setup.ps1')
+    $script:OriginalProjectOnboardBranch = $env:PROJECT_ONBOARD_BRANCH
+    Remove-Item Env:PROJECT_ONBOARD_BRANCH -ErrorAction SilentlyContinue
+  }
+
+  AfterAll {
+    if ($null -ne $script:OriginalProjectOnboardBranch) {
+      $env:PROJECT_ONBOARD_BRANCH = $script:OriginalProjectOnboardBranch
+    } else {
+      Remove-Item Env:PROJECT_ONBOARD_BRANCH -ErrorAction SilentlyContinue
+    }
   }
 
   Context 'optional feature reporting' {
@@ -32,6 +42,7 @@ Describe 'setup.ps1' {
       $output | Should -Contain "[INFO] Optional feature 'Windows Subsystem for Linux' is already enabled."
       $output | Should -Contain "[INFO] Optional feature 'Virtual Machine Platform' is already enabled."
       $output | Should -Contain "[INFO] Detected WSL distributions: Ubuntu"
+    $output | Should -Contain "[INFO] Using project-onboard branch 'main'."
   $output | Should -Contain '[INFO] Dry-run mode: no host changes were made.'
 
   Assert-MockCalled Get-OptionalFeatureRecord -Times 2 -Exactly
@@ -68,6 +79,7 @@ Describe 'setup.ps1' {
         $output | Should -Contain "[WARN] Optional feature 'Windows Subsystem for Linux' is not enabled (state: Disabled)."
         $output | Should -Contain "[INFO] DRY-RUN: Would run: dism.exe /online /enable-feature /featurename:Microsoft-Windows-Subsystem-Linux /all /norestart"
         $output | Should -Contain "[WARN] No WSL distributions are currently registered."
+  $output | Should -Contain "[INFO] Using project-onboard branch 'main'."
         # Verify WSL first-boot setup is included even when no distributions exist
         ($output -join "`n") | Should -Match 'WSL First-Boot User Setup'
 
@@ -468,7 +480,9 @@ Describe 'setup.ps1' {
 
       ($output -join "`n") | Should -Match 'Handing off to setup\.sh inside WSL'
       ($output -join "`n") | Should -Match 'Would execute.*wsl.*bash'
-      ($output -join "`n") | Should -Match 'curl.*setup\.sh'
+  ($output -join "`n") | Should -Match 'PROJECT_ONBOARD_BRANCH=main'
+  ($output -join "`n") | Should -Match 'curl.*project-onboard/main/setup\.sh'
+  ($output -join "`n") | Should -Match '--branch main'
     }
 
     It 'constructs handoff with NonInteractive flag' {
@@ -562,6 +576,29 @@ Describe 'setup.ps1' {
       ($output -join "`n") | Should -Match '--verbose'
       ($output -join "`n") | Should -Match '--no-optional'
       ($output -join "`n") | Should -Match "--workspace /test"
+    }
+
+    It 'propagates custom branch to WSL handoff' {
+      Mock Get-OptionalFeatureRecord {
+        [pscustomobject]@{
+          FeatureName = 'Microsoft-Windows-Subsystem-Linux'
+          State       = 'Enabled'
+        }
+      }
+
+      Mock Invoke-WslCommand { @('Ubuntu') }
+
+      Remove-Item Env:\CI -ErrorAction SilentlyContinue
+
+      try {
+        $output = Invoke-Onboarding -DryRun -Branch 'iter-9'
+
+        ($output -join "`n") | Should -Match 'PROJECT_ONBOARD_BRANCH=iter-9'
+        ($output -join "`n") | Should -Match 'project-onboard/iter-9/setup\.sh'
+        ($output -join "`n") | Should -Match '--branch iter-9'
+      } finally {
+        Remove-Item Env:\PROJECT_ONBOARD_BRANCH -ErrorAction SilentlyContinue
+      }
     }
 
     It 'includes WSL handoff in execution plan' {

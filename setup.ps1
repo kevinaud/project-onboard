@@ -6,7 +6,8 @@ param(
   [switch]$NonInteractive,
   [switch]$NoOptional,
   [switch]$VerboseMode,
-  [string]$Workspace
+  [string]$Workspace,
+  [string]$Branch
 )
 
 Set-StrictMode -Version Latest
@@ -20,6 +21,9 @@ if ($PSBoundParameters) {
   foreach ($entry in $PSBoundParameters.GetEnumerator()) {
     $script:ScriptBoundParameters[$entry.Key] = $entry.Value
   }
+}
+if (-not $script:ScriptBoundParameters.ContainsKey('Branch') -and -not [string]::IsNullOrWhiteSpace($env:PROJECT_ONBOARD_BRANCH)) {
+  $script:ScriptBoundParameters['Branch'] = $env:PROJECT_ONBOARD_BRANCH
 }
 
 $script:OnboardState = $null
@@ -280,7 +284,8 @@ function Initialize-OnboardState {
     [switch]$NonInteractiveSwitch,
     [switch]$NoOptionalSwitch,
     [switch]$VerboseSwitch,
-    [string]$WorkspacePath
+    [string]$WorkspacePath,
+    [string]$BranchName
   )
 
   $defaultWorkspace = if ([string]::IsNullOrWhiteSpace($WorkspacePath)) {
@@ -296,6 +301,16 @@ function Initialize-OnboardState {
   # Detect CI environment
   $isCI = [bool]($env:CI -eq 'true')
 
+  $branchValue = if ([string]::IsNullOrWhiteSpace($BranchName)) {
+    if ([string]::IsNullOrWhiteSpace($env:PROJECT_ONBOARD_BRANCH)) {
+      'main'
+    } else {
+      $env:PROJECT_ONBOARD_BRANCH
+    }
+  } else {
+    $BranchName
+  }
+
   $script:OnboardState = [ordered]@{
     DryRun         = [bool]$DryRunSwitch
     NonInteractive = [bool]$NonInteractiveSwitch
@@ -304,6 +319,7 @@ function Initialize-OnboardState {
     Workspace      = $defaultWorkspace
     IsCI           = $isCI
     UbuntuDistribution = $null
+    Branch        = $branchValue
   }
 
   if ($script:OnboardState.Verbose) {
@@ -311,6 +327,7 @@ function Initialize-OnboardState {
     if ($isCI) {
       Write-VerboseMessage "CI environment detected."
     }
+    Write-VerboseMessage "Operating against project-onboard branch '$branchValue'."
   }
 }
 
@@ -921,23 +938,43 @@ function Invoke-WslHandoff {
   Write-Info '========== Handing off to setup.sh inside WSL =========='
   Write-Info ''
 
-  # Build flag string for setup.sh
-  $wslFlags = ''
-  if ($script:OnboardState.NonInteractive) {
-    $wslFlags += ' --non-interactive'
-  }
-  if ($script:OnboardState.Verbose) {
-    $wslFlags += ' --verbose'
-  }
-  if ($script:OnboardState.NoOptional) {
-    $wslFlags += ' --no-optional'
-  }
-  if ($script:OnboardState.Workspace) {
-    $wslFlags += " --workspace $($script:OnboardState.Workspace)"
+  $branch = $script:OnboardState.Branch
+  if ([string]::IsNullOrWhiteSpace($branch)) {
+    $branch = 'main'
   }
 
-  $setupUrl = 'https://raw.githubusercontent.com/kevinaud/project-onboard/main/setup.sh'
-  $handoffCommand = "curl -fsSL $setupUrl | bash -s -- $wslFlags"
+  $flagSegments = New-Object System.Collections.Generic.List[string]
+  if ($script:OnboardState.NonInteractive) {
+    $flagSegments.Add('--non-interactive') | Out-Null
+  }
+  if ($script:OnboardState.Verbose) {
+    $flagSegments.Add('--verbose') | Out-Null
+  }
+  if ($script:OnboardState.NoOptional) {
+    $flagSegments.Add('--no-optional') | Out-Null
+  }
+  if ($script:OnboardState.Workspace) {
+    $flagSegments.Add('--workspace') | Out-Null
+    $flagSegments.Add($script:OnboardState.Workspace) | Out-Null
+  }
+  if ($branch) {
+    $flagSegments.Add('--branch') | Out-Null
+    $flagSegments.Add($branch) | Out-Null
+  }
+
+  $flagString = if ($flagSegments.Count -gt 0) {
+    [string]::Join(' ', $flagSegments)
+  } else {
+    ''
+  }
+
+  $setupUrl = "https://raw.githubusercontent.com/kevinaud/project-onboard/$branch/setup.sh"
+  $envPrefix = "PROJECT_ONBOARD_BRANCH=$branch "
+  if ([string]::IsNullOrWhiteSpace($flagString)) {
+    $handoffCommand = "${envPrefix}curl -fsSL $setupUrl | bash"
+  } else {
+    $handoffCommand = "${envPrefix}curl -fsSL $setupUrl | bash -s -- $flagString"
+  }
 
   Write-Info "Executing: wsl -e bash -lc `"$handoffCommand`""
 
@@ -980,10 +1017,12 @@ function Invoke-Onboarding {
     [switch]$NonInteractive,
     [switch]$NoOptional,
     [switch]$VerboseMode,
-    [string]$Workspace
+    [string]$Workspace,
+    [string]$Branch
   )
 
-  Initialize-OnboardState -DryRunSwitch:$DryRun -NonInteractiveSwitch:$NonInteractive -NoOptionalSwitch:$NoOptional -VerboseSwitch:$VerboseMode -WorkspacePath $Workspace
+  Initialize-OnboardState -DryRunSwitch:$DryRun -NonInteractiveSwitch:$NonInteractive -NoOptionalSwitch:$NoOptional -VerboseSwitch:$VerboseMode -WorkspacePath $Workspace -BranchName $Branch
+  $env:PROJECT_ONBOARD_BRANCH = $script:OnboardState.Branch
 
   $plan = @(
     'Check required Windows optional features for WSL',
@@ -1008,6 +1047,7 @@ function Invoke-Onboarding {
   )
 
   Show-ExecutionPlan -Steps $plan
+  Write-Info "Using project-onboard branch '$($script:OnboardState.Branch)'."
 
   # Query feature status before making changes
   Write-OptionalFeatureStatus
