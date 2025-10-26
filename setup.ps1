@@ -837,6 +837,7 @@ function Invoke-GitCredentialManagerAuth {
   Write-Info ''
 
   $gcmPath = 'C:\Program Files\Git\mingw64\bin\git-credential-manager.exe'
+  Write-DebugMessage "Using Git Credential Manager path: $gcmPath"
 
   if ($script:OnboardState.DryRun) {
     Write-DryRunAction "Would run: & '$gcmPath' configure"
@@ -851,6 +852,21 @@ function Invoke-GitCredentialManagerAuth {
   }
 
   try {
+    $gcmItem = Get-Item -Path $gcmPath -ErrorAction Stop
+    Write-DebugMessage "GCM file details: FullName=$($gcmItem.FullName); Version=$($gcmItem.VersionInfo.ProductVersion)"
+  } catch {
+    Write-DebugMessage "Failed to read GCM file metadata: $($_.Exception.Message)"
+  }
+
+  $gcmVersionResult = & $gcmPath --version 2>&1
+  $gcmVersionExit = $LASTEXITCODE
+  Write-DebugMessage "GCM --version output: $($gcmVersionResult | Out-String)"
+  Write-DebugMessage "GCM --version exit code: $gcmVersionExit"
+  if ($gcmVersionExit -ne 0) {
+    Write-Warn "Git Credential Manager version check returned exit code $gcmVersionExit. Continuing, but authentication may fail."
+  }
+
+  try {
     # Configure GCM
     Write-DebugMessage "Executing: $gcmPath configure"
     $configResult = & $gcmPath configure 2>&1
@@ -859,6 +875,14 @@ function Invoke-GitCredentialManagerAuth {
     Write-DebugMessage "GCM configure exit code: $LASTEXITCODE"
     if ($LASTEXITCODE -ne 0) {
       Write-Warn "Git Credential Manager configure step failed with exit code $LASTEXITCODE"
+      if ($configResult) {
+        Write-Info 'Captured configure output:'
+        foreach ($line in $configResult) { Write-Info "  $line" }
+      }
+      Write-Info 'Try running the following command manually for additional diagnostics:'
+      Write-Info "  & '$gcmPath' diagnose"
+      Write-Info 'You can also re-run configure manually:'
+      Write-Info "  & '$gcmPath' configure"
       return
     }
 
@@ -872,6 +896,14 @@ function Invoke-GitCredentialManagerAuth {
     Write-DebugMessage "GCM get exit code: $LASTEXITCODE"
     if ($LASTEXITCODE -ne 0) {
       Write-Warn "Git Credential Manager get step failed with exit code $LASTEXITCODE"
+      if ($authResult) {
+        Write-Info 'Captured authentication output:'
+        foreach ($line in $authResult) { Write-Info "  $line" }
+      }
+      Write-Info 'You can retry authentication manually with:'
+      Write-Info "  echo protocol=https`nhost=github.com`n`n | & '$gcmPath' get"
+      Write-Info 'If the browser did not launch, run:'
+      Write-Info "  & '$gcmPath' login"
       return
     }
 
@@ -880,6 +912,10 @@ function Invoke-GitCredentialManagerAuth {
     Write-Warn "GCM authentication encountered an issue: $($_.Exception.Message)"
     Write-DebugMessage "Exception details: $($_.Exception | Out-String)"
     Write-Info 'You may need to authenticate manually later.'
+    Write-Info "Manual troubleshooting commands:" 
+    Write-Info "  & '$gcmPath' diagnose"
+    Write-Info "  & '$gcmPath' configure"
+    Write-Info "  echo protocol=https`nhost=github.com`n`n | & '$gcmPath' get"
   }
 
   if (-not $script:OnboardState.NonInteractive) {
