@@ -7,6 +7,28 @@ set -euo pipefail
 # Keep IFS narrow to avoid surprising word-splitting.
 IFS=$' \t\n'
 
+convert_windows_path_to_wsl() {
+  local path="${1:-}"
+
+  if [[ ! "$path" =~ ^[A-Za-z]:[\\/].* ]]; then
+    printf '%s' "$path"
+    return 0
+  fi
+
+  local drive="${path:0:1}"
+  local remainder="${path:2}"
+
+  remainder="${remainder//\\/\/}"
+  remainder="${remainder#/}"
+  drive="${drive,,}"
+
+  if [ -n "$remainder" ]; then
+    printf '/mnt/%s/%s' "$drive" "$remainder"
+  else
+    printf '/mnt/%s' "$drive"
+  fi
+}
+
 # Allow host wrapper to pass branch override via environment.
 if [ -z "${ONBOARD_BRANCH:-}" ] && [ -n "${PROJECT_ONBOARD_BRANCH:-}" ]; then
   ONBOARD_BRANCH="${PROJECT_ONBOARD_BRANCH}"
@@ -25,10 +47,22 @@ case "${ONBOARD_DRY_RUN}" in
   1|true|TRUE|True|yes|YES|Yes)
     ONBOARD_DRY_RUN=1
     ;;
-  *)
+  * )
     ONBOARD_DRY_RUN=0
     ;;
 esac
+
+if [[ "${ONBOARD_WORKSPACE_DIR}" =~ ^[A-Za-z]:[\\/].* ]]; then
+  if command -v wslpath >/dev/null 2>&1; then
+    if converted_workspace=$(wslpath -a "${ONBOARD_WORKSPACE_DIR}" 2>/dev/null); then
+      ONBOARD_WORKSPACE_DIR="${converted_workspace}"
+    else
+      ONBOARD_WORKSPACE_DIR="$(convert_windows_path_to_wsl "${ONBOARD_WORKSPACE_DIR}")"
+    fi
+  elif [ -n "${WSL_INTEROP:-}" ] || [ -n "${WSL_DISTRO_NAME:-}" ]; then
+    ONBOARD_WORKSPACE_DIR="$(convert_windows_path_to_wsl "${ONBOARD_WORKSPACE_DIR}")"
+  fi
+fi
 
 export ONBOARD_VERBOSE ONBOARD_NON_INTERACTIVE ONBOARD_DRY_RUN ONBOARD_NO_OPTIONAL ONBOARD_BRANCH ONBOARD_WORKSPACE_DIR
 export PROJECT_ONBOARD_BRANCH="${ONBOARD_BRANCH}"

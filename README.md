@@ -10,7 +10,13 @@ Cross-platform onboarding tooling for the mental-health-app-frontend project. Th
 curl -fsSL https://raw.githubusercontent.com/kevinaud/project-onboard/main/setup.sh | bash
 ```
 
-To test another branch, either append `--branch <name>` to the command or set `PROJECT_ONBOARD_BRANCH=<name>` before piping the script.
+To test another branch, append `--branch <name>` or wrap the pipeline so the environment variable survives the subshell:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/kevinaud/project-onboard/main/setup.sh | bash -s -- --branch iter-9
+# or
+PROJECT_ONBOARD_BRANCH=iter-9 bash -c 'curl -fsSL https://raw.githubusercontent.com/kevinaud/project-onboard/main/setup.sh | bash'
+```
 
 ### Windows (WSL)
 
@@ -49,7 +55,7 @@ Available options:
 
 Use `--dry-run` if you want to preview actions before executing them.
 
-You can also set the environment variable `PROJECT_ONBOARD_BRANCH=<name>` to pin every step (PowerShell and WSL/macOS) to a specific branch without passing the flag on every command.
+You can also set the environment variable `PROJECT_ONBOARD_BRANCH=<name>` to pin every step (PowerShell and WSL/macOS) to a specific branch without passing the flag on every command. When you pipe the installer, wrap it in a subshell (for example `PROJECT_ONBOARD_BRANCH=iter-9 bash -c 'curl -fsSL https://raw.githubusercontent.com/kevinaud/project-onboard/main/setup.sh | bash'`) so the variable reaches the invoked script.
 
 ## What It Does
 

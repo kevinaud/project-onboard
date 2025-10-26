@@ -133,6 +133,39 @@ function ConvertTo-Hashtable {
   return $result
 }
 
+function Convert-WorkspacePathForWsl {
+  param([string]$Path)
+
+  if ([string]::IsNullOrWhiteSpace($Path)) {
+    return $Path
+  }
+
+  if ($Path.StartsWith('/')) {
+    return $Path
+  }
+
+  if ($Path -match '^[A-Za-z]:[\\/].*') {
+    $driveLetter = $Path.Substring(0, 1).ToLowerInvariant()
+    $remaining = $Path.Substring(2)
+    $remaining = $remaining.TrimStart('\\', '/')
+    $remaining = $remaining -replace '\\', '/'
+    return "/mnt/$driveLetter/$remaining"
+  }
+
+  return $Path
+}
+
+function Convert-ToBashArgument {
+  param([string]$Value)
+
+  if ($null -eq $Value) {
+    return "''"
+  }
+
+  $escaped = $Value -replace "'", "'\"'\"'"
+  return "'$escaped'"
+}
+
 function Get-VSCodeSettingsPath {
   if (-not $env:APPDATA) {
     return $null
@@ -946,10 +979,12 @@ function Invoke-WslFirstBootSetup {
   if ($script:OnboardState.DryRun) {
     Write-DryRunAction 'Would check WSL user existence with: wsl -e id -u'
     Write-DryRunAction 'Would launch interactive WSL setup if needed: Start-Process wsl.exe'
+    Write-Info ''
+    Write-Info '========== WSL First-Boot Complete =========='
+    Write-Info ''
     return
   }
 
-  # Try to run id -u inside WSL to check if a user exists
   $wslUserCheck = $null
   try {
     $wslUserCheck = wsl -e id -u 2>&1
@@ -964,7 +999,6 @@ function Invoke-WslFirstBootSetup {
     Write-Info 'When complete, close the Ubuntu window and return here.'
     Write-Info ''
 
-    # Launch WSL interactively
     Start-Process 'wsl.exe' -Wait:$false
 
     Write-Info 'Waiting for WSL user creation...'
@@ -976,6 +1010,48 @@ function Invoke-WslFirstBootSetup {
   Write-Info ''
   Write-Info '========== WSL First-Boot Complete =========='
   Write-Info ''
+}
+
+function Configure-WslGitCredentialManager {
+  <#
+  .SYNOPSIS
+    Ensure WSL Git delegates credential storage to the Windows Git Credential Manager.
+  #>
+
+  Write-Info 'Configuring WSL Git to use Windows Git Credential Manager...'
+
+  $gcmWindowsPath = 'C:\Program Files\Git\mingw64\bin\git-credential-manager.exe'
+  $gcmWslPath = '/mnt/c/Program Files/Git/mingw64/bin/git-credential-manager.exe'
+  $gcmWslEscaped = $gcmWslPath -replace ' ', '\\ '
+
+  if ($script:OnboardState.DryRun) {
+    Write-DryRunAction "Would run: wsl -e bash -lc \"git config --global credential.helper '$gcmWslEscaped'\""
+    Write-DryRunAction "Would run: wsl -e bash -lc \"git config --global credential.https://dev.azure.com.useHttpPath true\""
+    return
+  }
+
+  if (-not (Test-Path -Path $gcmWindowsPath)) {
+    Write-Warn 'Git Credential Manager executable not found at C:\Program Files\Git\mingw64\bin. Skipping WSL Git credential helper configuration.'
+    return
+  }
+
+  $commands = @(
+    "git config --global credential.helper '$gcmWslEscaped'"
+    "git config --global credential.https://dev.azure.com.useHttpPath true"
+  )
+
+  foreach ($command in $commands) {
+    try {
+      $result = wsl -e bash -lc $command 2>&1
+      if ($LASTEXITCODE -ne 0) {
+        Write-Warn "WSL command failed with exit code $LASTEXITCODE while running '$command'. Output: $($result -join ' ')"
+      } else {
+        Write-VerboseMessage "WSL git configuration command succeeded: $command"
+      }
+    } catch {
+      Write-Warn "Failed to execute '$command' inside WSL: $($_.Exception.Message)"
+    }
+  }
 }
 
 function Invoke-WslHandoff {
@@ -1004,12 +1080,13 @@ function Invoke-WslHandoff {
     $flagSegments.Add('--no-optional') | Out-Null
   }
   if ($script:OnboardState.Workspace) {
+    $workspaceForWsl = Convert-WorkspacePathForWsl -Path $script:OnboardState.Workspace
     $flagSegments.Add('--workspace') | Out-Null
-    $flagSegments.Add($script:OnboardState.Workspace) | Out-Null
+    $flagSegments.Add((Convert-ToBashArgument -Value $workspaceForWsl)) | Out-Null
   }
   if ($branch) {
     $flagSegments.Add('--branch') | Out-Null
-    $flagSegments.Add($branch) | Out-Null
+    $flagSegments.Add((Convert-ToBashArgument -Value $branch)) | Out-Null
   }
 
   $flagString = if ($flagSegments.Count -gt 0) {
@@ -1030,6 +1107,9 @@ function Invoke-WslHandoff {
 
   if ($script:OnboardState.DryRun) {
     Write-DryRunAction "Would execute: wsl -e bash -lc `"$handoffCommand`""
+    Write-Info ''
+    Write-Info '========== WSL Handoff Complete =========='
+    Write-Info ''
     return
   }
 
@@ -1154,6 +1234,7 @@ function Invoke-Onboarding {
   # Manual-only: WSL first-boot user creation
   if (-not $script:OnboardState.IsCI) {
     Invoke-WslFirstBootSetup
+    Configure-WslGitCredentialManager
   }
 
   # Handoff to setup.sh inside WSL (manual mode only)

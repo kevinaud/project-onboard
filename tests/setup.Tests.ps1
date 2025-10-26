@@ -380,6 +380,46 @@ Describe 'setup.ps1' {
     }
   }
 
+  Context 'WSL handoff command' {
+    It 'converts Windows workspace paths before invoking setup.sh' {
+      Initialize-OnboardState -DryRunSwitch:$true -NonInteractiveSwitch:$false -NoOptionalSwitch:$false -VerboseSwitch:$false -WorkspacePath 'C:\Users\Test User\My Projects' -BranchName 'iter-9'
+
+      $output = Invoke-WslHandoff
+
+      ($output -join "`n") | Should -Match "--workspace '/mnt/c/Users/Test User/My Projects'"
+      ($output -join "`n") | Should -Match "--branch 'iter-9'"
+
+      Initialize-OnboardState -DryRunSwitch:$false -NonInteractiveSwitch:$false -NoOptionalSwitch:$false -VerboseSwitch:$false -WorkspacePath $null -BranchName 'main'
+    }
+  }
+
+  Context 'WSL credential helper configuration' {
+    It 'emits dry-run commands for Git Credential Manager integration' {
+      Initialize-OnboardState -DryRunSwitch:$true -NonInteractiveSwitch:$false -NoOptionalSwitch:$false -VerboseSwitch:$false -WorkspacePath $null -BranchName 'main'
+
+      $output = Configure-WslGitCredentialManager
+
+  ($output -join "`n") | Should -Match "credential.helper '/mnt/c/Program\ Files/Git/mingw64/bin/git-credential-manager.exe'"
+      ($output -join "`n") | Should -Match 'credential.https://dev.azure.com.useHttpPath true'
+
+      Initialize-OnboardState -DryRunSwitch:$false -NonInteractiveSwitch:$false -NoOptionalSwitch:$false -VerboseSwitch:$false -WorkspacePath $null -BranchName 'main'
+    }
+
+    It 'skips configuration when the Windows credential manager is missing' {
+      Initialize-OnboardState -DryRunSwitch:$false -NonInteractiveSwitch:$false -NoOptionalSwitch:$false -VerboseSwitch:$false -WorkspacePath $null -BranchName 'main'
+
+      Mock -CommandName Test-Path { $false }
+      Mock -CommandName wsl {}
+
+      $output = Configure-WslGitCredentialManager
+
+      ($output -join "`n") | Should -Match 'Git Credential Manager executable not found'
+      Assert-MockCalled -CommandName wsl -Times 0 -Exactly
+
+      Initialize-OnboardState -DryRunSwitch:$false -NonInteractiveSwitch:$false -NoOptionalSwitch:$false -VerboseSwitch:$false -WorkspacePath $null -BranchName 'main'
+    }
+  }
+
   Context 'CI vs Manual mode detection' {
     It 'skips manual-only steps in CI mode' {
       Mock Get-OptionalFeatureRecord {

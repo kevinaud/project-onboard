@@ -20,6 +20,19 @@ get_workspace_dir() {
   if [ -z "${workspace}" ]; then
     workspace="${HOME}/projects"
   fi
+
+  if [[ "${workspace}" =~ ^[A-Za-z]:[\\/].* ]]; then
+    if command -v wslpath >/dev/null 2>&1; then
+      local converted_workspace
+      if converted_workspace=$(wslpath -a "${workspace}" 2>/dev/null); then
+        workspace="${converted_workspace}"
+      else
+        workspace="$(convert_windows_path_to_wsl "${workspace}")"
+      fi
+    elif [ -n "${WSL_INTEROP:-}" ] || [ -n "${WSL_DISTRO_NAME:-}" ]; then
+      workspace="$(convert_windows_path_to_wsl "${workspace}")"
+    fi
+  fi
   
   echo "${workspace}"
 }
