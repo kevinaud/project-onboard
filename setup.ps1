@@ -166,6 +166,57 @@ function Convert-WorkspacePathForWsl {
   return $Path
 }
 
+function Resolve-ProjectRepoRoot {
+  if (-not [string]::IsNullOrWhiteSpace($script:ProjectOnboardScriptPath)) {
+    $candidate = Split-Path -Path $script:ProjectOnboardScriptPath -Parent
+    if ($candidate) {
+      $setupCandidate = Join-Path -Path $candidate -ChildPath 'setup.sh'
+      if (Test-Path -Path $setupCandidate) {
+        return $candidate
+      }
+    }
+  }
+
+  try {
+    $location = (Get-Location).ProviderPath
+  } catch {
+    $location = $null
+  }
+
+  $probe = $location
+  while (-not [string]::IsNullOrWhiteSpace($probe)) {
+    $setupPath = Join-Path -Path $probe -ChildPath 'setup.sh'
+    if (Test-Path -Path $setupPath) {
+      return $probe
+    }
+
+    $parent = Split-Path -Path $probe -Parent
+    if ([string]::IsNullOrWhiteSpace($parent) -or $parent -eq $probe) {
+      break
+    }
+
+    $probe = $parent
+  }
+
+  $gitExe = Get-Command -Name git -ErrorAction SilentlyContinue
+  if ($gitExe) {
+    try {
+      $gitRoot = (& $gitExe.Path rev-parse --show-toplevel 2>$null)
+      if (-not [string]::IsNullOrWhiteSpace($gitRoot)) {
+        $gitRoot = $gitRoot.Trim()
+        $setupPath = Join-Path -Path $gitRoot -ChildPath 'setup.sh'
+        if (Test-Path -Path $setupPath) {
+          return $gitRoot
+        }
+      }
+    } catch {
+      Write-DebugMessage "git rev-parse probe failed: $($_.Exception.Message)"
+    }
+  }
+
+  return $null
+}
+
 function Convert-ToBashArgument {
   param([string]$Value)
 
@@ -1240,19 +1291,6 @@ function Invoke-WslHandoff {
   Write-Info '========== Handing off to setup.sh inside WSL =========='
   Write-Info ''
 
-  $windowsRepoRoot = Split-Path -Path $script:ProjectOnboardScriptPath -Parent
-  $setupShPath = Join-Path -Path $windowsRepoRoot -ChildPath 'setup.sh'
-  if (-not (Test-Path -Path $setupShPath)) {
-    Write-Warn "setup.sh not found at expected path '$setupShPath'. Skipping WSL handoff."
-    return
-  }
-  $wslRepoRoot = Convert-WorkspacePathForWsl -Path $windowsRepoRoot
-  if ([string]::IsNullOrWhiteSpace($wslRepoRoot)) {
-    Write-Warn 'Unable to determine WSL path for project-onboard repository. Skipping WSL handoff.'
-    return
-  }
-  Write-DebugMessage "Resolved WSL repository root path: $wslRepoRoot"
-
   $branch = $script:OnboardState.Branch
   if ([string]::IsNullOrWhiteSpace($branch)) {
     $branch = 'main'
@@ -1297,18 +1335,49 @@ function Invoke-WslHandoff {
     $envPrefix = ([string]::Join(' ', $envAssignments)) + ' '
   }
 
-  $wslRepoArg = Convert-ToBashArgument -Value $wslRepoRoot
-  $setupInvocation = './setup.sh'
-  if (-not [string]::IsNullOrWhiteSpace($flagString)) {
-    $setupInvocation = "$setupInvocation $flagString"
+  $handoffCommand = $null
+  $windowsRepoRoot = Resolve-ProjectRepoRoot
+  if (-not [string]::IsNullOrWhiteSpace($windowsRepoRoot)) {
+    $setupShPath = Join-Path -Path $windowsRepoRoot -ChildPath 'setup.sh'
+    if (Test-Path -Path $setupShPath) {
+      $wslRepoRoot = Convert-WorkspacePathForWsl -Path $windowsRepoRoot
+      if (-not [string]::IsNullOrWhiteSpace($wslRepoRoot)) {
+        Write-DebugMessage "Resolved WSL repository root path: $wslRepoRoot"
+        $wslRepoArg = Convert-ToBashArgument -Value $wslRepoRoot
+        $setupInvocation = './setup.sh'
+        if (-not [string]::IsNullOrWhiteSpace($flagString)) {
+          $setupInvocation = "$setupInvocation $flagString"
+        }
+        if (-not [string]::IsNullOrWhiteSpace($envPrefix)) {
+          $setupInvocation = "$envPrefix$setupInvocation"
+        }
+        $handoffCommand = "cd $wslRepoArg && $setupInvocation"
+      } else {
+        Write-Warn 'Unable to determine WSL path for project-onboard repository. Falling back to remote setup download.'
+      }
+    } else {
+      Write-Warn "setup.sh not found at expected path '$setupShPath'. Falling back to remote setup download."
+    }
+  } else {
+    Write-Warn 'Could not locate project-onboard repository path. Falling back to remote setup download.'
   }
-  if (-not [string]::IsNullOrWhiteSpace($envPrefix)) {
-    $setupInvocation = "$envPrefix$setupInvocation"
+
+  if ([string]::IsNullOrWhiteSpace($handoffCommand)) {
+    $setupUrl = "https://raw.githubusercontent.com/kevinaud/project-onboard/$branch/setup.sh"
+    if ([string]::IsNullOrWhiteSpace($flagString)) {
+      $handoffCommand = "curl -fsSL $setupUrl | bash"
+    } else {
+      $handoffCommand = "curl -fsSL $setupUrl | bash -s -- $flagString"
+    }
+    if (-not [string]::IsNullOrWhiteSpace($envPrefix)) {
+      $handoffCommand = "$envPrefix$handoffCommand"
+    }
+    Write-DebugMessage 'WSL handoff using remote setup.sh download.'
+  } else {
+    Write-DebugMessage 'WSL handoff using local repository setup.sh.'
   }
-  $handoffCommand = "cd $wslRepoArg && $setupInvocation"
 
   Write-Info "Executing: wsl -e bash -lc \"$handoffCommand\""
-  Write-DebugMessage 'WSL handoff command before variable substitution: cd <repo> && ./setup.sh <flags>'
   Write-DebugMessage "Final command after substitution: wsl -e bash -lc \"$handoffCommand\""
 
   if ($script:OnboardState.DryRun) {
