@@ -28,6 +28,9 @@ To pin the Windows bootstrap to another branch directly from the one-liner, set 
 powershell -NoProfile -ExecutionPolicy Bypass -Command "$env:PROJECT_ONBOARD_BRANCH='iter-9'; Invoke-RestMethod https://raw.githubusercontent.com/kevinaud/project-onboard/main/setup.ps1 | Invoke-Expression"
 ```
 
+> **Tip**
+> When the script enables the WSL features for the first time, Windows usually requires a reboot before Ubuntu can be installed. If prompted, restart Windows and re-run `setup.ps1`; the onboarding flow will resume where it left off.
+
 ## Usage
 
 ```bash

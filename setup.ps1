@@ -320,6 +320,8 @@ function Initialize-OnboardState {
     IsCI           = $isCI
     UbuntuDistribution = $null
     Branch        = $branchValue
+    RequiresReboot = $false
+    EnabledWslFeatures = $false
   }
 
   if ($script:OnboardState.Verbose) {
@@ -381,6 +383,20 @@ function Enable-WslFeature {
 
   Write-Info 'Enabling WSL and Virtual Machine Platform...'
 
+  $features = @(
+    [pscustomobject]@{ Name = 'Microsoft-Windows-Subsystem-Linux'; Display = 'Windows Subsystem for Linux' },
+    [pscustomobject]@{ Name = 'VirtualMachinePlatform'; Display = 'Virtual Machine Platform' }
+  )
+
+  $preStates = @()
+  foreach ($feature in $features) {
+    try {
+      $preStates += Get-OptionalFeatureRecord -FeatureName $feature.Name
+    } catch {
+      Write-VerboseMessage "Unable to query optional feature state before enable for $($feature.Name): $($_.Exception.Message)"
+    }
+  }
+
   if ($script:OnboardState.DryRun) {
     Write-DryRunAction 'Would run: dism.exe /online /enable-feature /featurename:Microsoft-Windows-Subsystem-Linux /all /norestart'
     Write-DryRunAction 'Would run: dism.exe /online /enable-feature /featurename:VirtualMachinePlatform /all /norestart'
@@ -402,6 +418,27 @@ function Enable-WslFeature {
     Write-Info 'WSL and Virtual Machine Platform features enabled successfully.'
   } catch {
     throw "Failed to enable WSL features: $($_.Exception.Message)"
+  }
+
+  if ($preStates) {
+    $allEnabledBefore = $true
+    foreach ($state in $preStates) {
+      if ($null -eq $state) {
+        $allEnabledBefore = $false
+        continue
+      }
+
+      if ($state.State -ne 'Enabled') {
+        $allEnabledBefore = $false
+      }
+    }
+
+    if (-not $allEnabledBefore) {
+      $script:OnboardState.EnabledWslFeatures = $true
+    }
+  } else {
+    # If we cannot determine the existing state, assume changes were required
+    $script:OnboardState.EnabledWslFeatures = $true
   }
 }
 
@@ -618,7 +655,14 @@ function Install-UbuntuDistribution {
     Write-VerboseMessage "wsl --install exit code: $installExitCode"
 
     if ($installExitCode -ne 0) {
-      Write-Warn "wsl --install exited with code $installExitCode. Will attempt manual import."
+      if (-not $script:OnboardState.IsCI -and $script:OnboardState.EnabledWslFeatures) {
+        Write-Warn "wsl --install exited with code $installExitCode."
+        Write-Warn 'The Windows features required for WSL were just enabled. A system restart is needed before installing Ubuntu.'
+        $script:OnboardState.RequiresReboot = $true
+        return
+      } else {
+        Write-Warn "wsl --install exited with code $installExitCode. Will attempt manual import."
+      }
     } else {
       Start-Sleep -Seconds 5
     }
@@ -628,6 +672,12 @@ function Install-UbuntuDistribution {
       Write-Info 'Ubuntu distribution detected after wsl --install.'
       $script:OnboardState.UbuntuDistribution = 'Ubuntu-22.04'
       Set-WslDefaultDistribution -DistributionName 'Ubuntu-22.04'
+      return
+    }
+
+    if (-not $script:OnboardState.IsCI -and $script:OnboardState.EnabledWslFeatures) {
+      Write-Warn 'Ubuntu distribution not detected after wsl --install. Windows must restart to complete the installation before continuing.'
+      $script:OnboardState.RequiresReboot = $true
       return
     }
 
@@ -1060,6 +1110,12 @@ function Invoke-Onboarding {
 
   # Install Ubuntu distribution
   Install-UbuntuDistribution
+
+  if ($script:OnboardState.RequiresReboot -and -not $script:OnboardState.IsCI) {
+    Write-Warn 'A system restart is required to finish enabling WSL and installing Ubuntu.'
+    Write-Info 'Please reboot Windows, then re-run setup.ps1 to continue the onboarding process. No further actions were taken.'
+    return
+  }
 
   # Install Git for Windows
   Install-GitForWindows

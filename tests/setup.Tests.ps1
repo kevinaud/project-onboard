@@ -271,6 +271,36 @@ Describe 'setup.ps1' {
 
       Assert-MockCalled Set-WslDefaultDistribution -Times 0 -Exactly
     }
+
+    It 'requires reboot when wsl --install fails after enabling features' {
+      Initialize-OnboardState -DryRunSwitch:$false -NonInteractiveSwitch:$false -NoOptionalSwitch:$false -VerboseSwitch:$false -WorkspacePath $null -BranchName $null
+      $script:OnboardState.EnabledWslFeatures = $true
+      $script:OnboardState.IsCI = $false
+
+      Mock Get-WslDistributionData { @() }
+      Mock Import-UbuntuDistributionFromAppx {}
+
+      Mock 'wsl.exe' {
+        if ($args[0] -eq '--install') {
+          $global:LASTEXITCODE = 1
+          return 'install failed'
+        }
+
+        $global:LASTEXITCODE = 0
+        return @()
+      }
+
+      try {
+        $output = Install-UbuntuDistribution
+
+        $script:OnboardState.RequiresReboot | Should -BeTrue
+        $script:OnboardState.UbuntuDistribution | Should -BeNullOrEmpty
+        ($output -join "`n") | Should -Match '(?i)system restart is needed'
+        Assert-MockCalled Import-UbuntuDistributionFromAppx -Times 0 -Exactly
+      } finally {
+        Initialize-OnboardState -DryRunSwitch:$false -NonInteractiveSwitch:$false -NoOptionalSwitch:$false -VerboseSwitch:$false -WorkspacePath $null -BranchName 'main'
+      }
+    }
   }
 
   Context 'VS Code configuration' {
