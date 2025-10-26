@@ -158,7 +158,7 @@ function Convert-WorkspacePathForWsl {
   if ($Path -match '^[A-Za-z]:[\\/].*') {
     $driveLetter = $Path.Substring(0, 1).ToLowerInvariant()
     $remaining = $Path.Substring(2)
-    $remaining = $remaining.TrimStart('\\', '/')
+    $remaining = $remaining.TrimStart([char[]]'\/')
     $remaining = $remaining -replace '\\', '/'
     return "/mnt/$driveLetter/$remaining"
   }
